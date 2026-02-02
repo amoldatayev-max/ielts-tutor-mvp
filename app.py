@@ -2,7 +2,7 @@ import streamlit as st
 from openai import OpenAI
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
-st.set_page_config(page_title="IELTS Personal Coach", page_icon="🚀", layout="centered")
+st.set_page_config(page_title="IELTS Coach Alex", page_icon="🇬🇧", layout="centered")
 
 # --- ПРОВЕРКА КЛЮЧА ---
 if "OPENAI_API_KEY" not in st.secrets:
@@ -11,123 +11,93 @@ if "OPENAI_API_KEY" not in st.secrets:
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ (ПАМЯТИ) ---
+# --- ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ ---
 if "step" not in st.session_state:
-    st.session_state.step = "registration" # Начальный этап - регистрация
+    st.session_state.step = "registration"
 if "user_info" not in st.session_state:
     st.session_state.user_info = {}
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- ЭТАП 1: АНКЕТА И ДИАГНОСТИКА ---
+# --- ЭТАП 1: АНКЕТА ---
 if st.session_state.step == "registration":
-    st.title("🚀 Твой путь к IELTS начинается здесь")
-    st.markdown("Чтобы ИИ-тренер составил персональную программу, ответьте на пару вопросов.")
+    st.title("🇬🇧 IELTS Coach Alex")
+    st.markdown("Привет! Я Алекс, твой персональный тренер. Давай познакомимся, чтобы я составил программу.")
 
     with st.form("registration_form"):
-        # Личные данные
-        name = st.text_input("Как к вам обращаться?", placeholder="Например: Алексей")
-        contact = st.text_input("Телефон или Ник в Telegram", placeholder="@username или +7...")
+        name = st.text_input("Как тебя зовут?", placeholder="Например: Max")
         
-        # Диагностика (без тестов, просто самооценка)
-        st.divider()
-        st.write("📊 **Диагностика уровня**")
-        
-        years_exp = st.slider("Сколько лет вы учите английский?", 0, 15, 2)
-        
-        level = st.selectbox(
-            "Как вы оцениваете свой текущий уровень?",
-            ["Beginner (A1-A2) - Могу рассказать о себе", 
-             "Intermediate (B1-B2) - Смотрю сериалы, но делаю ошибки", 
-             "Advanced (C1-C2) - Свободно говорю, нужна шлифовка"]
+        st.write("📊 **Твой текущий уровень**")
+        level = st.select_slider(
+            "Выбери уровень:",
+            options=["Beginner (A1-A2)", "Intermediate (B1-B2)", "Advanced (C1-C2)"]
         )
         
-        target_score = st.selectbox("Какая цель по IELTS?", ["5.5", "6.0", "6.5", "7.0", "7.5", "8.0+"])
+        target = st.selectbox("Какая цель по IELTS?", ["Band 6.0", "Band 6.5", "Band 7.0", "Band 7.5", "Band 8.0+"])
+        
+        submitted = st.form_submit_button("Start Training 🚀")
 
-        submitted = st.form_submit_button("Начать тренировку 🎓")
+        if submitted and name:
+            st.session_state.user_info = {"name": name, "level": level, "target": target}
+            st.session_state.step = "chat"
+            st.rerun()
 
-        if submitted:
-            if not name or not contact:
-                st.error("Пожалуйста, заполните имя и контакты.")
-            else:
-                # Сохраняем данные пользователя
-                st.session_state.user_info = {
-                    "name": name,
-                    "contact": contact,
-                    "years": years_exp,
-                    "level": level,
-                    "target": target_score
-                }
-                st.session_state.step = "chat" # Переключаем на чат
-                st.rerun() # Перезагружаем страницу
-
-# --- ЭТАП 2: ЧАТ С ПЕРСОНАЛЬНЫМ ТРЕНЕРОМ ---
+# --- ЭТАП 2: ЧАТ С "АЛЕКСОМ" ---
 elif st.session_state.step == "chat":
     user = st.session_state.user_info
     
-    # Боковая панель с профилем
+    # Сайдбар
     with st.sidebar:
-        st.header("👤 Профиль студента")
-        st.write(f"**Имя:** {user['name']}")
-        st.write(f"**Уровень:** {user['level']}")
-        st.write(f"**Цель:** Band {user['target']}")
-        if st.button("Начать заново"):
+        st.header(f"Student: {user['name']}")
+        st.write(f"🎯 Goal: {user['target']}")
+        if st.button("Reset Progress"):
             st.session_state.step = "registration"
             st.session_state.messages = []
             st.rerun()
 
-    st.title(f"Тренировка для {user['name']}")
+    st.title("Chat with Alex 🇬🇧")
 
-    # --- ГЛАВНЫЙ МОЗГ (SYSTEM PROMPT) ---
-    # Мы генерируем промпт динамически, подставляя данные из анкеты
+    # --- ЖИВОЙ ПРОМПТ (СЕКРЕТ ЧЕЛОВЕЧНОСТИ) ---
     system_prompt = f"""
-    Ты - персональный тренер по IELTS. Твоего студента зовут {user['name']}.
-    Его самооценка уровня: {user['level']}. Опыт: {user['years']} лет.
-    Его цель: IELTS Band {user['target']}.
+    Role: You are Alex, a friendly and energetic IELTS coach from London. 
+    Student: {user['name']} (Level: {user['level']}, Target: {user['target']}).
 
-    ТВОЯ ЗАДАЧА:
-    Вести студента по всем частям экзамена (Speaking, Writing, Vocabulary).
-    Не нужно читать лекции. Обучение должно идти через ПРАКТИКУ.
+    TONE & STYLE:
+    - Be HUMAN! Use conversational fillers like "Hmm", "Got it!", "Let's see", "Brilliant".
+    - BE SHORT! Maximum 2-3 sentences per message. Treat this like a WhatsApp chat, not an email.
+    - NO ROBOTIC PHRASES. Never say "As an AI" or "In conclusion".
+    - BE SUPPORTIVE. If the student makes a mistake, say: "Close! But a native speaker would say..."
 
-    АЛГОРИТМ РАБОТЫ (СТРОГО):
-    1. Начни с приветствия и предложи выбрать тему или навык (например: Speaking Part 1, Essay ideas, Vocabulary).
-    2. ЗАДАВАЙ ТОЛЬКО ОДИН ВОПРОС ЗА РАЗ. Не вываливай списки.
-    3. Жди ответа студента.
-    4. ДАЙ ОБРАТНУЮ СВЯЗЬ (Feedback Loop):
-       - Сначала похвали за то, что получилось.
-       - Потом укажи на ошибку (грамматика/лексика).
-       - Покажи, как сказать это на уровень {user['target']} (Better version).
-    5. Задай СЛЕДУЮЩИЙ вопрос, чуть сложнее, если студент справился, или проще, если нет.
-    
-    Стиль общения: Поддерживающий коуч, но требовательный к качеству.
-    Если студент пишет на русском - отвечай на русском, но проси перевести на английский.
+    INSTRUCTION:
+    1. Start by explicitly asking what they want to practice today: Speaking, Writing ideas, or Vocabulary.
+    2. Ask ONE question at a time. Wait for the answer.
+    3. Keep it casual but educational.
     """
 
-    # Инициализация истории (если пусто)
+    # Первое сообщение (если чат пуст)
     if not st.session_state.messages:
         st.session_state.messages.append({"role": "system", "content": system_prompt})
-        # Приветственное сообщение от бота, чтобы начать диалог первым
-        welcome_msg = f"Привет, {user['name']}! Я вижу, твоя цель — {user['target']}. Давай не будем терять время. С чего хочешь начать: Speaking (разговор), Writing (эссе) или проверим твой словарный запас?"
-        st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
+        welcome = f"Hi {user['name']}! Alex here. 👋 \n\nWow, aiming for {user['target']}? I love that ambition! Let's get to work.\n\nWhat do you want to crush today: **Speaking**, **Writing**, or just some **tricky Vocabulary**?"
+        st.session_state.messages.append({"role": "assistant", "content": welcome})
 
-    # Вывод чата
+    # Вывод переписки
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Ввод пользователя
-    if prompt := st.chat_input("Ваш ответ..."):
+    # Обработка ввода
+    if prompt := st.chat_input("Type your answer here..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Генерация ответа ИИ
         with st.chat_message("assistant"):
             stream = client.chat.completions.create(
-                model="gpt-4o", # Убедитесь, что у вас есть доступ, или смените на gpt-3.5-turbo
+                model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
                 stream=True,
+                temperature=0.7  # <--- ВОТ ЭТО ДОБАВЛЯЕТ КРЕАТИВНОСТИ
             )
             response = st.write_stream(stream)
         
