@@ -1,93 +1,138 @@
 import streamlit as st
 from openai import OpenAI
+import gspread
+import json
 
 # --- НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="IELTS Coach Alex", page_icon="🇬🇧", layout="centered")
 
-# --- ПРОВЕРКА КЛЮЧА ---
+# --- ПОДКЛЮЧЕНИЕ К GOOGLE SHEETS ---
+def get_db_connection():
+    try:
+        # Читаем секреты, которые вы только что настроили
+        credentials_dict = dict(st.secrets["gcp_service_account"])
+        
+        # Небольшой хак: восстанавливаем переносы строк в ключе, если они потерялись
+        if "private_key" in credentials_dict:
+            credentials_dict["private_key"] = credentials_dict["private_key"].replace("\\n", "\n")
+        
+        # Подключаемся
+        gc = gspread.service_account_from_dict(credentials_dict)
+        sh = gc.open("IELTS_Users_DB") # ВАЖНО: Ваша таблица должна называться именно так!
+        return sh.sheet1
+    except Exception as e:
+        st.error(f"Ошибка соединения с таблицей: {e}")
+        return None
+
+worksheet = get_db_connection()
+
+# --- ФУНКЦИИ: ЧТЕНИЕ И ЗАПИСЬ ---
+def load_user(phone):
+    if not worksheet: return None
+    try:
+        cell = worksheet.find(phone) # Ищем телефон
+        if cell:
+            row = worksheet.row_values(cell.row)
+            # Если истории нет, создаем пустую
+            history_data = row[4] if len(row) > 4 else "[]"
+            return {
+                "row_id": cell.row,
+                "name": row[1],
+                "level": row[2],
+                "target": row[3],
+                "history": json.loads(history_data)
+            }
+    except:
+        return None
+    return None
+
+def register_user(phone, name, level, target):
+    if not worksheet: return None
+    # Добавляем строку: Phone, Name, Level, Target, History (пустая)
+    worksheet.append_row([phone, name, level, target, "[]"])
+    return load_user(phone)
+
+def save_history(row_id, messages):
+    if not worksheet: return
+    # Превращаем переписку в текст и сохраняем в 5-ю колонку
+    history_str = json.dumps(messages, ensure_ascii=False)
+    worksheet.update_cell(row_id, 5, history_str)
+
+# --- ПРОВЕРКА OPENAI ---
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Пожалуйста, добавьте API Key в настройки Streamlit (Secrets).")
+    st.error("Нет ключа OpenAI.")
     st.stop()
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ ---
-if "step" not in st.session_state:
-    st.session_state.step = "registration"
-if "user_info" not in st.session_state:
-    st.session_state.user_info = {}
+# --- ИНИЦИАЛИЗАЦИЯ ---
+if "user" not in st.session_state:
+    st.session_state.user = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- ЭТАП 1: АНКЕТА ---
-if st.session_state.step == "registration":
+# --- ЭКРАН 1: ВХОД / РЕГИСТРАЦИЯ ---
+if not st.session_state.user:
     st.title("🇬🇧 IELTS Coach Alex")
-    st.markdown("Привет! Я Алекс, твой персональный тренер. Давай познакомимся, чтобы я составил программу.")
-
-    with st.form("registration_form"):
-        name = st.text_input("Как тебя зовут?", placeholder="Например: Max")
-        
-        st.write("📊 **Твой текущий уровень**")
-        level = st.select_slider(
-            "Выбери уровень:",
-            options=["Beginner (A1-A2)", "Intermediate (B1-B2)", "Advanced (C1-C2)"]
-        )
-        
-        target = st.selectbox("Какая цель по IELTS?", ["Band 6.0", "Band 6.5", "Band 7.0", "Band 7.5", "Band 8.0+"])
-        
-        submitted = st.form_submit_button("Start Training 🚀")
-
-        if submitted and name:
-            st.session_state.user_info = {"name": name, "level": level, "target": target}
-            st.session_state.step = "chat"
-            st.rerun()
-
-# --- ЭТАП 2: ЧАТ С "АЛЕКСОМ" ---
-elif st.session_state.step == "chat":
-    user = st.session_state.user_info
     
-    # Сайдбар
+    tab1, tab2 = st.tabs(["Войти", "Регистрация"])
+    
+    with tab1:
+        phone_login = st.text_input("Введи свой ID (например, телефон):", key="login_phone")
+        if st.button("Войти"):
+            user = load_user(phone_login)
+            if user:
+                st.session_state.user = user
+                st.session_state.messages = user["history"]
+                st.success(f"Привет, {user['name']}!")
+                st.rerun()
+            else:
+                st.error("Пользователь не найден. Сначала зарегистрируйся.")
+
+    with tab2:
+        with st.form("reg_form"):
+            new_phone = st.text_input("Придумай ID (телефон):")
+            new_name = st.text_input("Твое имя:")
+            new_level = st.select_slider("Уровень:", ["Beginner", "Intermediate", "Advanced"])
+            new_target = st.selectbox("Цель:", ["Band 6.0", "Band 7.0", "Band 8.0+"])
+            
+            if st.form_submit_button("Создать аккаунт"):
+                if new_phone and new_name:
+                    user = register_user(new_phone, new_name, new_level, new_target)
+                    st.session_state.user = user
+                    st.session_state.messages = []
+                    st.rerun()
+                else:
+                    st.warning("Заполни все поля.")
+
+# --- ЭКРАН 2: ЧАТ ---
+else:
+    user = st.session_state.user
+    
     with st.sidebar:
-        st.header(f"Student: {user['name']}")
-        st.write(f"🎯 Goal: {user['target']}")
-        if st.button("Reset Progress"):
-            st.session_state.step = "registration"
+        st.write(f"Студент: **{user['name']}**")
+        if st.button("Выйти"):
+            st.session_state.user = None
             st.session_state.messages = []
             st.rerun()
 
-    st.title("Chat with Alex 🇬🇧")
+    st.title(f"Chat with Alex ({user['target']})")
 
-    # --- ЖИВОЙ ПРОМПТ (СЕКРЕТ ЧЕЛОВЕЧНОСТИ) ---
-    system_prompt = f"""
-    Role: You are Alex, a friendly and energetic IELTS coach from London. 
-    Student: {user['name']} (Level: {user['level']}, Target: {user['target']}).
-
-    TONE & STYLE:
-    - Be HUMAN! Use conversational fillers like "Hmm", "Got it!", "Let's see", "Brilliant".
-    - BE SHORT! Maximum 2-3 sentences per message. Treat this like a WhatsApp chat, not an email.
-    - NO ROBOTIC PHRASES. Never say "As an AI" or "In conclusion".
-    - BE SUPPORTIVE. If the student makes a mistake, say: "Close! But a native speaker would say..."
-
-    INSTRUCTION:
-    1. Start by explicitly asking what they want to practice today: Speaking, Writing ideas, or Vocabulary.
-    2. Ask ONE question at a time. Wait for the answer.
-    3. Keep it casual but educational.
-    """
-
-    # Первое сообщение (если чат пуст)
+    # Первый запуск чата
     if not st.session_state.messages:
-        st.session_state.messages.append({"role": "system", "content": system_prompt})
-        welcome = f"Hi {user['name']}! Alex here. 👋 \n\nWow, aiming for {user['target']}? I love that ambition! Let's get to work.\n\nWhat do you want to crush today: **Speaking**, **Writing**, or just some **tricky Vocabulary**?"
-        st.session_state.messages.append({"role": "assistant", "content": welcome})
+        sys_prompt = f"You are Alex, IELTS coach. Student: {user['name']} ({user['level']}). Style: Short, casual WhatsApp style. Goal: {user['target']}."
+        st.session_state.messages.append({"role": "system", "content": sys_prompt})
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready to rock? What are we doing today?"})
+        save_history(user["row_id"], st.session_state.messages)
 
-    # Вывод переписки
+    # Вывод истории
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Обработка ввода
-    if prompt := st.chat_input("Type your answer here..."):
+    # Ввод сообщения
+    if prompt := st.chat_input("Напиши ответ..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -97,8 +142,10 @@ elif st.session_state.step == "chat":
                 model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
                 stream=True,
-                temperature=0.7  # <--- ВОТ ЭТО ДОБАВЛЯЕТ КРЕАТИВНОСТИ
+                temperature=0.7
             )
             response = st.write_stream(stream)
         
         st.session_state.messages.append({"role": "assistant", "content": response})
+        # СОХРАНЯЕМ В ТАБЛИЦУ ПОСЛЕ КАЖДОГО СООБЩЕНИЯ
+        save_history(user["row_id"], st.session_state.messages)
