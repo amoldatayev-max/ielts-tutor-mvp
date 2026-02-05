@@ -3,14 +3,13 @@ from openai import OpenAI
 import gspread
 import json
 
-# --- НАСТРОЙКИ СТРАНИЦЫ ---
-st.set_page_config(page_title="IELTS Coach Alex", page_icon="🇬🇧", layout="centered")
+# --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
+st.set_page_config(page_title="IELTS Coach Arman", page_icon="🇰🇿", layout="centered")
 
-# --- КОНТАКТ ДЛЯ СБРОСА ПАРОЛЯ ---
-# Теперь здесь ваша прямая ссылка
+# --- 2. КОНТАКТЫ АДМИНА ---
 ADMIN_CONTACT = "https://t.me/aligassan_zest" 
 
-# --- ПОДКЛЮЧЕНИЕ К GOOGLE SHEETS ---
+# --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ---
 def get_db_connection():
     try:
         credentials_dict = dict(st.secrets["gcp_service_account"])
@@ -25,17 +24,15 @@ def get_db_connection():
 
 worksheet = get_db_connection()
 
-# --- ФУНКЦИИ БД ---
+# --- 4. ФУНКЦИИ ---
 def load_user(phone):
     if not worksheet: return None
     try:
         cell = worksheet.find(phone)
         if cell:
             row = worksheet.row_values(cell.row)
-            # Структура: Phone, Name, Level, Target, History, Password
             history_data = row[4] if len(row) > 4 else "[]"
             password_data = row[5] if len(row) > 5 else "" 
-            
             return {
                 "row_id": cell.row,
                 "name": row[1],
@@ -51,8 +48,7 @@ def load_user(phone):
 def register_user(phone, name, level, target, password):
     if not worksheet: return None
     try:
-        if worksheet.find(phone):
-            return "EXISTS"
+        if worksheet.find(phone): return "EXISTS"
         worksheet.append_row([phone, name, level, target, "[]", password])
         return load_user(phone)
     except:
@@ -63,95 +59,125 @@ def save_history(row_id, messages):
     history_str = json.dumps(messages, ensure_ascii=False)
     worksheet.update_cell(row_id, 5, history_str)
 
-# --- ПРОВЕРКА OPENAI ---
+# --- 5. OPENAI ---
 if "OPENAI_API_KEY" not in st.secrets:
-    st.error("Нет ключа OpenAI.")
+    st.error("Нет ключа API.")
     st.stop()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- ИНИЦИАЛИЗАЦИЯ ---
+# --- 6. ИНИЦИАЛИЗАЦИЯ ---
 if "user" not in st.session_state:
     st.session_state.user = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # ==========================================
-# ЭКРАН 1: ВХОД / РЕГИСТРАЦИЯ
+# ЛОГИКА ВХОДА
 # ==========================================
 if not st.session_state.user:
-    st.title("🇬🇧 IELTS Coach Alex")
+    st.title("🇰🇿 IELTS Coach Arman")
     
     tab1, tab2 = st.tabs(["🔐 Войти", "📝 Регистрация"])
     
-    # --- ВХОД ---
     with tab1:
-        with st.form("login_form"):
-            phone_login = st.text_input("Ваш ID (Телефон):")
-            pass_login = st.text_input("Пароль:", type="password")
-            
+        with st.form("login"):
+            ph = st.text_input("Ваш ID (Телефон):")
+            pw = st.text_input("Пароль:", type="password")
             if st.form_submit_button("Войти"):
-                if phone_login and pass_login:
-                    user_data = load_user(phone_login)
-                    if user_data:
-                        if str(user_data["password"]).strip() == str(pass_login).strip():
-                            st.session_state.user = user_data
-                            st.session_state.messages = user_data["history"]
-                            st.success(f"Welcome back, {user_data['name']}!")
-                            st.rerun()
-                        else:
-                            st.error("Неверный пароль!")
-                    else:
-                        st.error("Пользователь не найден.")
+                ud = load_user(ph)
+                if ud and str(ud["password"]).strip() == str(pw).strip():
+                    st.session_state.user = ud
+                    st.session_state.messages = ud["history"]
+                    st.rerun()
                 else:
-                    st.warning("Введите ID и пароль.")
-
-        st.divider()
-        # Кликабельная ссылка для сброса
+                    st.error("Ошибка входа")
         if st.expander("Забыли пароль?"):
-            st.markdown(f"Напишите администратору для восстановления доступа: **[Написать в Telegram]({ADMIN_CONTACT})**")
+            st.markdown(f"Пишите сюда: **[Telegram]({ADMIN_CONTACT})**")
 
-    # --- РЕГИСТРАЦИЯ ---
     with tab2:
-        with st.form("reg_form"):
-            new_phone = st.text_input("Придумай ID (Телефон):", help="Это будет твой логин")
-            new_pass = st.text_input("Придумай пароль:", type="password")
-            new_name = st.text_input("Имя:")
-            new_level = st.select_slider("Уровень:", ["Beginner", "Intermediate", "Advanced"])
-            new_target = st.selectbox("Цель:", ["Band 6.0", "Band 7.0", "Band 8.0+"])
+        with st.form("reg"):
+            n_ph = st.text_input("Телефон (ID):")
+            n_pw = st.text_input("Пароль:", type="password")
+            n_nm = st.text_input("Имя:")
+            n_lv = st.select_slider("Уровень:", ["Beginner (A1-A2)", "Intermediate (B1-B2)", "Advanced (C1-C2)"])
+            n_tg = st.selectbox("Цель:", ["Band 5.5", "Band 6.0", "Band 6.5", "Band 7.0", "Band 7.5+"])
             
             if st.form_submit_button("Создать аккаунт"):
-                if new_phone and new_pass and new_name:
-                    result = register_user(new_phone, new_name, new_level, new_target, new_pass)
-                    if result == "EXISTS":
-                        st.error("Такой пользователь уже есть. Попробуй войти.")
-                    elif result:
-                        st.session_state.user = result
+                if n_ph and n_pw and n_nm:
+                    res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw)
+                    if res == "EXISTS": st.error("Такой пользователь уже есть.")
+                    elif res:
+                        st.session_state.user = res
                         st.session_state.messages = []
                         st.rerun()
-                    else:
-                        st.error("Ошибка регистрации.")
                 else:
-                    st.warning("Заполни все поля!")
+                    st.warning("Заполните поля")
 
 # ==========================================
-# ЭКРАН 2: ЧАТ
+# ЛОГИКА ЧАТА (ARMAN 3.1 - BILINGUAL)
 # ==========================================
 else:
     user = st.session_state.user
     
     with st.sidebar:
-        st.write(f"Студент: **{user['name']}**")
+        st.header(user['name'])
+        st.write(f"Level: {user['level']}")
         if st.button("Выйти"):
             st.session_state.user = None
             st.session_state.messages = []
             st.rerun()
 
-    st.title(f"Chat with Alex ({user['target']})")
+    st.title(f"Chat with Arman")
 
+    # --- НАСТРОЙКА МОЗГА ---
     if not st.session_state.messages:
-        sys_prompt = f"Role: IELTS Coach Alex. Student: {user['name']} ({user['level']}). Goal: {user['target']}. Style: Friendly WhatsApp chat, short answers."
+        
+        # ЛОГИКА ПЕРЕВОДА (BILINGUAL SUPPORT)
+        if "Advanced" in user['level']:
+            lang_mode = "HARDCORE MODE: Speak ONLY English."
+        else:
+            # ДЛЯ НОВИЧКОВ: ПЕРЕВОД КЛЮЧЕВЫХ СЛОВ
+            lang_mode = """
+            ADAPTIVE BILINGUAL SUPPORT:
+            1. INSTRUCTIONS: Write mainly in English, BUT translate KEY words/tasks in brackets.
+               - IF student speaks Russian: "Let's focus on **Coherence** (Связность)."
+               - IF student speaks Kazakh: "Let's focus on **Coherence** (Байланыс)."
+            2. EXPLANATIONS: Explain errors fully in their native language (RU/KZ).
+            3. MIRRORING: If they write in KZ, answer with KZ translations. If RU, then RU.
+            """
+
+        sys_prompt = f"""
+        # IDENTITY
+        You are Arman, an IELTS Coach from Kazakhstan.
+        
+        # STUDENT
+        Name: {user['name']}, Level: {user['level']}, Target: {user['target']}
+
+        # STYLE MIRRORING
+        - If student is SHY -> Be warm & use emojis.
+        - If student is SERIOUS -> Be professional.
+        - If student is STRUGGLING -> Simplify & Translate.
+
+        # RULES
+        - NO MATH/PHYSICS: "Мен IELTS мұғалімімін. Есеп шығармаймын. 🇰🇿"
+        - NO FULL ESSAYS: Brainstorm only.
+        - SHORT ANSWERS: Max 3 sentences.
+
+        # LANGUAGE PROTOCOL
+        {lang_mode}
+
+        # ALGORITHM
+        1. Praise/Validate.
+        2. Correct errors (Sandwich method).
+        3. Ask ONE question.
+        """
+        
         st.session_state.messages.append({"role": "system", "content": sys_prompt})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Alex here. Let's crash IELTS! What are we practicing?"})
+        
+        # Приветствие с переводом
+        welcome = f"Salem, {user['name']}! Арман на связи. 🇰🇿\n\nTarget: {user['target']}. \n\nHow is your **mood** (көңіл-күйің/настроение)? Ready to **start** (бастау/начать)?"
+        st.session_state.messages.append({"role": "assistant", "content": welcome})
+        
         save_history(user["row_id"], st.session_state.messages)
 
     for msg in st.session_state.messages:
@@ -159,7 +185,7 @@ else:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    if prompt := st.chat_input("Message Alex..."):
+    if prompt := st.chat_input("..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -168,8 +194,7 @@ else:
             stream = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                stream=True,
-                temperature=0.7
+                stream=True, temperature=0.7
             )
             response = st.write_stream(stream)
         
