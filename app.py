@@ -7,7 +7,7 @@ import json
 st.set_page_config(page_title="IELTS Coach Arman", page_icon="🇰🇿", layout="centered")
 
 # --- 2. КОНТАКТЫ АДМИНА ---
-ADMIN_CONTACT = "https://t.me/aligassan_zest" 
+ADMIN_CONTACT = "https://t.me/aligassan_m" 
 
 # --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ---
 def get_db_connection():
