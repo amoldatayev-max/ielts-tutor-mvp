@@ -175,54 +175,74 @@ if not st.session_state.user:
                         st.warning("Заполните все поля")
 
 # ==========================================
-# ЭКРАН 2: ЧАТ С АРМАНОМ (OPTIMIZED)
+# ЭКРАН 2: ЧАТ С АРМАНОМ (С УЛУЧШЕНИЯМИ)
 # ==========================================
 else:
     user = st.session_state.user
     
     with st.sidebar:
+        st.image("https://upload.wikimedia.org/wikipedia/commons/d/d3/Flag_of_Kazakhstan.svg", width=50) # Флаг как лого
         st.header(user['name'])
         st.caption(f"Level: {user['level']} | Goal: {user['target']}")
         
-        # Кнопка очистки чата (Новая фича)
-        if st.button("🧹 Очистить историю"):
+        st.divider()
+        
+        # --- НОВАЯ ФИЧА: ВЫБОР ТЕМЫ ---
+        topic = st.selectbox(
+            "📚 Выбери тему урока:",
+            ["General Chat", "Work & Studies", "Hometown", "Hobbies", "Travel", "Technology", "Environment"]
+        )
+        
+        # Если тема изменилась, можно отправить системное сообщение (опционально)
+        if "current_topic" not in st.session_state:
+            st.session_state.current_topic = "General Chat"
+        
+        if topic != st.session_state.current_topic:
+            st.session_state.current_topic = topic
+            # Мягко просим Армана сменить тему
+            st.session_state.messages.append({"role": "system", "content": f"User changed topic to: {topic}. Start asking questions about {topic} immediately."})
+            st.rerun()
+
+        st.divider()
+        if st.button("🧹 Очистить чат"):
             st.session_state.messages = []
             st.rerun()
-            
-        st.divider()
-        if st.button("Выйти"):
+        if st.button("🚪 Выйти"):
             st.session_state.user = None
             st.session_state.messages = []
             st.rerun()
 
-    st.title(f"Chat with Arman")
+    st.title(f"Arman | IELTS Coach 🇰🇿")
+    st.caption(f"Текущая тема: **{topic}**")
 
     # --- ЗАГРУЗКА МОЗГА ---
     if not st.session_state.messages:
-        # Генерируем промпт через функцию (чище код)
         sys_prompt = get_system_prompt(user)
         st.session_state.messages.append({"role": "system", "content": sys_prompt})
-        
-        welcome = f"Salem, {user['name']}! Арман на связи. 🇰🇿\n\nДавай начнем. **Для чего тебе IELTS?** (Учёба или работа?) и когда сдаешь?"
+        welcome = f"Salem, {user['name']}! Арман на связи. 🇰🇿\n\nМы выбрали тему: **{topic}**. Готов начать?"
         st.session_state.messages.append({"role": "assistant", "content": welcome})
         save_history(user["row_id"], st.session_state.messages)
 
-    # Вывод
+    # --- ВЫВОД СООБЩЕНИЙ С АВАТАРКАМИ ---
     for msg in st.session_state.messages:
         if msg["role"] != "system":
-            with st.chat_message(msg["role"]):
+            # Выбираем иконку
+            if msg["role"] == "user":
+                avatar_icon = "👤" # Или ссылка на картинку
+            else:
+                avatar_icon = "👨‍🏫" # Или ссылка на фото Армана
+            
+            with st.chat_message(msg["role"], avatar=avatar_icon):
                 st.markdown(msg["content"])
 
-    # Ввод
-    if prompt := st.chat_input("Напиши ответ..."):
+    # --- ВВОД ---
+    if prompt := st.chat_input("Твой ответ..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
+        with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            # Создаем placeholder для индикации
+        with st.chat_message("assistant", avatar="👨‍🏫"):
             message_placeholder = st.empty()
-            
             stream = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
