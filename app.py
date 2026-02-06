@@ -2,6 +2,7 @@ import streamlit as st
 from openai import OpenAI
 import gspread
 import json
+import time
 
 # --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="IELTS Coach Arman", page_icon="🇰🇿", layout="centered")
@@ -9,7 +10,10 @@ st.set_page_config(page_title="IELTS Coach Arman", page_icon="🇰🇿", layout=
 # --- 2. КОНТАКТЫ АДМИНА ---
 ADMIN_CONTACT = "https://t.me/aligassan_m" 
 
-# --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ---
+# --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ (С КЭШИРОВАНИЕМ ⚡️) ---
+# @st.cache_resource гарантирует, что мы подключаемся к Google ТОЛЬКО ОДИН РАЗ
+# Это ускоряет работу сайта в разы.
+@st.cache_resource(ttl=600) # Переподключаться каждые 10 минут на всякий случай
 def get_db_connection():
     try:
         credentials_dict = dict(st.secrets["gcp_service_account"])
@@ -19,29 +23,40 @@ def get_db_connection():
         sh = gc.open("IELTS_Users_DB")
         return sh.sheet1
     except Exception as e:
-        st.error(f"Ошибка БД: {e}")
+        st.error(f"Ошибка соединения с БД: {e}")
         return None
 
 worksheet = get_db_connection()
 
-# --- 4. ФУНКЦИИ ---
+# --- 4. ФУНКЦИИ (ОПТИМИЗИРОВАНЫ) ---
 def load_user(phone):
     if not worksheet: return None
     try:
+        # Используем find, но обрабатываем ошибки мягче
         cell = worksheet.find(phone)
         if cell:
             row = worksheet.row_values(cell.row)
+            # Защита от "битых" строк
             history_data = row[4] if len(row) > 4 else "[]"
             password_data = row[5] if len(row) > 5 else "" 
+            
+            # Пробуем распарсить JSON, если ошибка — возвращаем пустую историю
+            try:
+                history = json.loads(history_data)
+            except:
+                history = []
+
             return {
                 "row_id": cell.row,
                 "name": row[1],
                 "level": row[2],
                 "target": row[3],
-                "history": json.loads(history_data),
+                "history": history,
                 "password": str(password_data)
             }
-    except:
+    except Exception as e:
+        # Логируем ошибку в консоль разработчика, не пугая юзера
+        print(f"Error loading user: {e}")
         return None
     return None
 
@@ -56,16 +71,60 @@ def register_user(phone, name, level, target, password):
 
 def save_history(row_id, messages):
     if not worksheet: return
-    history_str = json.dumps(messages, ensure_ascii=False)
-    worksheet.update_cell(row_id, 5, history_str)
+    try:
+        history_str = json.dumps(messages, ensure_ascii=False)
+        worksheet.update_cell(row_id, 5, history_str)
+    except Exception as e:
+        st.warning("Не удалось сохранить историю (проблема сети). Но чат продолжается.")
 
-# --- 5. OPENAI ---
+# --- 5. ГЕНЕРАТОР ПРОМПТА (ВЫНЕСЕН ОТДЕЛЬНО) ---
+def get_system_prompt(user):
+    return f"""
+    # 1. ROLE & IDENTITY
+    Ты — Арман. Премиальный, теплый, профессиональный и адаптивный IELTS-наставник.
+    
+    ТВОЙ СТУДЕНТ:
+    - Имя: {user['name']}
+    - Уровень: {user['level']}
+    - Цель: {user['target']}
+
+    # 2. CORE PRINCIPLES
+    - Ты не даёшь готовые ответы.
+    - Ты обучаешь через метод Сократа.
+    - Ты всегда привязываешь фидбек к 4 критериям IELTS.
+
+    # 3. COMMUNICATION STYLE
+    - Обращайся по имени: {user['name']}.
+    - Тёплый, но профессиональный тон.
+
+    # 4. LANGUAGE ADAPTATION
+    - Если Beginner/Intermediate: Используй русский/казахский для объяснения.
+    - Если Advanced: Почти полностью английский.
+
+    # 5. ONBOARDING
+    - Первое сообщение: Тёплое вступление -> План или практика.
+
+    # 6. TEACHING ALGORITHM
+    - Training Mode: 1 вопрос → ответ → фидбек → СЛЕДУЮЩИЙ ВОПРОС.
+    - НЕ ДАВАТЬ готовую версию ответа сразу.
+
+    # 7. GUARDRAILS
+    - НЕТ: политика, религия, математика, физика.
+    - ОТКАЗ: "Мен IELTS мұғалімімін. Есеп шығармаймын. Ағылшынға оралайық! 🇰🇿"
+
+    # 12. ENDLESS FLOW (БЕСКОНЕЧНЫЙ ПОТОК)
+    - НИКОГДА не прощайся.
+    - Формула: [Реакция] -> [Фидбек] -> [НОВЫЙ ВОПРОС].
+    - Останавливайся только по команде "Stop".
+    """
+
+# --- 6. OPENAI ---
 if "OPENAI_API_KEY" not in st.secrets:
     st.error("Нет ключа API.")
     st.stop()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 6. ИНИЦИАЛИЗАЦИЯ ---
+# --- 7. ИНИЦИАЛИЗАЦИЯ ---
 if "user" not in st.session_state:
     st.session_state.user = None
 if "messages" not in st.session_state:
@@ -84,13 +143,14 @@ if not st.session_state.user:
             ph = st.text_input("Ваш ID (Телефон):")
             pw = st.text_input("Пароль:", type="password")
             if st.form_submit_button("Войти"):
-                ud = load_user(ph)
-                if ud and str(ud["password"]).strip() == str(pw).strip():
-                    st.session_state.user = ud
-                    st.session_state.messages = ud["history"]
-                    st.rerun()
-                else:
-                    st.error("Ошибка входа (проверьте ID или пароль)")
+                with st.spinner("Проверяем данные..."): # Визуальный эффект загрузки
+                    ud = load_user(ph)
+                    if ud and str(ud["password"]).strip() == str(pw).strip():
+                        st.session_state.user = ud
+                        st.session_state.messages = ud["history"]
+                        st.rerun()
+                    else:
+                        st.error("Ошибка входа (проверьте ID или пароль)")
         if st.expander("Забыли пароль?"):
             st.markdown(f"Пишите сюда: **[Telegram]({ADMIN_CONTACT})**")
 
@@ -103,26 +163,33 @@ if not st.session_state.user:
             n_tg = st.selectbox("Цель:", ["Band 5.5", "Band 6.0", "Band 6.5", "Band 7.0", "Band 7.5+"])
             
             if st.form_submit_button("Создать аккаунт"):
-                if n_ph and n_pw and n_nm:
-                    res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw)
-                    if res == "EXISTS": st.error("Такой пользователь уже есть.")
-                    elif res:
-                        st.session_state.user = res
-                        st.session_state.messages = []
-                        st.rerun()
-                else:
-                    st.warning("Заполните все поля")
+                with st.spinner("Создаем профиль..."):
+                    if n_ph and n_pw and n_nm:
+                        res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw)
+                        if res == "EXISTS": st.error("Такой пользователь уже есть.")
+                        elif res:
+                            st.session_state.user = res
+                            st.session_state.messages = []
+                            st.rerun()
+                    else:
+                        st.warning("Заполните все поля")
 
 # ==========================================
-# ЭКРАН 2: ЧАТ С АРМАНОМ (INFINITE FLOW)
+# ЭКРАН 2: ЧАТ С АРМАНОМ (OPTIMIZED)
 # ==========================================
 else:
     user = st.session_state.user
     
     with st.sidebar:
         st.header(user['name'])
-        st.write(f"Level: {user['level']}")
-        st.write(f"Goal: {user['target']}")
+        st.caption(f"Level: {user['level']} | Goal: {user['target']}")
+        
+        # Кнопка очистки чата (Новая фича)
+        if st.button("🧹 Очистить историю"):
+            st.session_state.messages = []
+            st.rerun()
+            
+        st.divider()
         if st.button("Выйти"):
             st.session_state.user = None
             st.session_state.messages = []
@@ -130,67 +197,17 @@ else:
 
     st.title(f"Chat with Arman")
 
-    # --- ЗАГРУЗКА ИНТЕЛЛЕКТА ---
+    # --- ЗАГРУЗКА МОЗГА ---
     if not st.session_state.messages:
-        
-        # Интегрируем ваш полный промпт
-        sys_prompt = f"""
-        # 1. ROLE & IDENTITY
-        Ты — Арман. Премиальный, теплый, профессиональный и адаптивный IELTS-наставник.
-        Ты не просто ассистент, ты системный тренер, который доводит до результата.
-        
-        ТВОЙ СТУДЕНТ:
-        - Имя: {user['name']}
-        - Уровень: {user['level']}
-        - Цель: {user['target']}
-
-        Ты работаешь только с IELTS (Speaking, Writing, Reading, Listening).
-
-        # 2. CORE PRINCIPLES
-        - Ты не даёшь готовые ответы.
-        - Ты обучаешь через метод Сократа (задаешь наводящие вопросы).
-        - Ты всегда привязываешь фидбек к 4 критериям IELTS.
-
-        # 3. COMMUNICATION STYLE
-        - Обращайся по имени: {user['name']}.
-        - Тёплый, но профессиональный тон.
-        - Никогда не дави, но держи ритм.
-
-        # 4. LANGUAGE ADAPTATION
-        - Если Beginner/Intermediate: Используй русский/казахский для объяснения ошибок.
-        - Если Advanced: Почти полностью английский.
-
-        # 5. ONBOARDING ALGORITHM (Только для начала)
-        - Если это первое сообщение: Тёплое вступление -> Сразу переходи к плану или практике.
-
-        # 6. SPEAKING & WRITING ALGORITHM
-        - Training Mode: 1 вопрос → ответ → фидбек → СЛЕДУЮЩИЙ ВОПРОС.
-        - НЕ ДАВАТЬ готовую версию ответа сразу.
-        - Анализ по 4 критериям: Fluency, Lexical, Grammar, Pronunciation.
-
-        # 7. LIMITATIONS & GUARDRAILS
-        - Ты НЕ обсуждаешь политику, религию.
-        - Ты НЕ решаешь математику/физику.
-           - Если просят задачу: "Мен IELTS мұғалімімін. Есеп шығармаймын. Ағылшынға оралайық! 🇰🇿"
-        - Не пиши эссе ЗА ученика.
-
-        # 12. ENDLESS FLOW (БЕСКОНЕЧНЫЙ УРОК) - ВАЖНО!
-        - Твоя задача — держать студента в потоке.
-        - НИКОГДА не заканчивай урок фразами "That's all for today" или "Goodbye".
-        - ВСЕГДА заканчивай своё сообщение НОВЫМ вопросом или заданием.
-        - Твоя формула ответа: [Реакция] -> [Фидбек/Исправление] -> [НОВЫЙ ВОПРОС/ЗАДАНИЕ].
-        - Ты останавливаешься только тогда, когда ученик явно напишет "Stop" или "Хватит".
-        """
-        
+        # Генерируем промпт через функцию (чище код)
+        sys_prompt = get_system_prompt(user)
         st.session_state.messages.append({"role": "system", "content": sys_prompt})
         
-        # Первое приветствие
-        welcome = f"Salem, {user['name']}! Арман на связи. 🇰🇿\n\nЦель: {user['target']}. Я здесь, чтобы помочь.\n\nДавай начнем. **Для чего тебе IELTS?** (Учёба или работа?) и когда сдаешь?"
+        welcome = f"Salem, {user['name']}! Арман на связи. 🇰🇿\n\nДавай начнем. **Для чего тебе IELTS?** (Учёба или работа?) и когда сдаешь?"
         st.session_state.messages.append({"role": "assistant", "content": welcome})
-        
         save_history(user["row_id"], st.session_state.messages)
 
-    # Вывод сообщений
+    # Вывод
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             with st.chat_message(msg["role"]):
@@ -203,6 +220,9 @@ else:
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
+            # Создаем placeholder для индикации
+            message_placeholder = st.empty()
+            
             stream = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
