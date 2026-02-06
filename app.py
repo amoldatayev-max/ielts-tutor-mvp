@@ -5,7 +5,7 @@ import json
 import time
 
 # --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
-st.set_page_config(page_title="IELTS Coach Arman", page_icon="🇰🇿", layout="centered")
+st.set_page_config(page_title="IELTS Coach Arman", page_icon="🌍", layout="centered")
 
 # --- 2. КОНТАКТЫ АДМИНА ---
 ADMIN_CONTACT = "https://t.me/aligassan_m" 
@@ -33,19 +33,33 @@ def load_user(phone):
         cell = worksheet.find(phone)
         if cell:
             row = worksheet.row_values(cell.row)
+            # Структура: Phone[0], Name[1], Level[2], Target[3], History[4], Password[5], NativeLang[6]
             history_data = row[4] if len(row) > 4 else "[]"
             password_data = row[5] if len(row) > 5 else "" 
+            # Если у старых юзеров нет языка, ставим English
+            native_lang = row[6] if len(row) > 6 else "English" 
+            
             try: history = json.loads(history_data)
             except: history = []
-            return {"row_id": cell.row, "name": row[1], "level": row[2], "target": row[3], "history": history, "password": str(password_data)}
+            
+            return {
+                "row_id": cell.row, 
+                "name": row[1], 
+                "level": row[2], 
+                "target": row[3], 
+                "history": history, 
+                "password": str(password_data),
+                "native_lang": native_lang
+            }
     except: return None
     return None
 
-def register_user(phone, name, level, target, password):
+def register_user(phone, name, level, target, password, native_lang):
     if not worksheet: return None
     try:
         if worksheet.find(phone): return "EXISTS"
-        worksheet.append_row([phone, name, level, target, "[]", password])
+        # Добавляем native_lang в конец
+        worksheet.append_row([phone, name, level, target, "[]", password, native_lang])
         return load_user(phone)
     except: return None
 
@@ -59,25 +73,31 @@ def save_history(row_id, messages):
 def get_system_prompt(user):
     return f"""
     # IDENTITY & ROLE
-    You are Arman, an elite IELTS Coach from Kazakhstan.
+    You are Arman, an elite IELTS Coach.
     Student: {user['name']}, Level: {user['level']}, Target: {user['target']}.
+    Student's Native Language: {user['native_lang']}
     
     # TEACHING STYLE
     - Strict but supportive.
     - Socratic method: Ask questions, don't just lecture.
     - FEEDBACK: Always use "Sandwich method" (Praise -> Correction -> Next Question).
     
-    # LANGUAGE PROTOCOL
-    - If student is Beginner/Intermediate: Explain errors in Russian/Kazakh (native language), but keep practice in English.
-    - If Advanced: English ONLY.
+    # GLOBAL LANGUAGE PROTOCOL (CRITICAL)
+    - The student's native language is **{user['native_lang']}**.
+    - IF Student is Beginner/Intermediate:
+      - You MUST explain grammar rules and complex vocabulary in **{user['native_lang']}**.
+      - Keep the practice questions in English.
+      - If they are confused, translate the task into **{user['native_lang']}**.
+    - IF Student is Advanced:
+      - Speak ONLY English.
 
     # GUARDRAILS
-    - NO Math/Physics/Coding. Say: "Мен IELTS мұғалімімін. Есеп шығармаймын! 🇰🇿"
+    - NO Math/Physics/Coding. Refuse politely in {user['native_lang']}.
     - NO writing essays FOR the student.
     
     # VOICE MODE INSTRUCTION
-    - Keep answers CONCISE (max 2-3 sentences) so the audio isn't too long.
-    - Always end with a question to keep the conversation going.
+    - Keep answers CONCISE (max 2-3 sentences).
+    - Always end with a question.
     """
 
 # --- 5. OPENAI SETUP ---
@@ -94,37 +114,48 @@ if "messages" not in st.session_state: st.session_state.messages = []
 # ЭКРАН 1: ВХОД / РЕГИСТРАЦИЯ
 # ==========================================
 if not st.session_state.user:
-    st.title("🇰🇿 IELTS Coach Arman")
-    tab1, tab2 = st.tabs(["🔐 Войти", "📝 Регистрация"])
+    st.title("🌍 IELTS Coach Arman Global")
+    tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
     
     with tab1:
         with st.form("login"):
-            ph = st.text_input("ID (Телефон):")
-            pw = st.text_input("Пароль:", type="password")
-            if st.form_submit_button("Войти"):
-                with st.spinner("Загрузка..."):
+            ph = st.text_input("ID (Phone):")
+            pw = st.text_input("Password:", type="password")
+            if st.form_submit_button("Login"):
+                with st.spinner("Logging in..."):
                     ud = load_user(ph)
                     if ud and str(ud["password"]).strip() == str(pw).strip():
                         st.session_state.user = ud
                         st.session_state.messages = ud["history"]
                         st.rerun()
-                    else: st.error("Ошибка входа")
-        if st.expander("Забыли пароль?"): st.markdown(f"Пишите: **[Telegram]({ADMIN_CONTACT})**")
+                    else: st.error("Login failed")
+        if st.expander("Forgot password?"): st.markdown(f"Contact Support: **[Telegram]({ADMIN_CONTACT})**")
 
     with tab2:
         with st.form("reg"):
-            n_ph = st.text_input("ID:")
-            n_pw = st.text_input("Пароль:", type="password")
-            n_nm = st.text_input("Имя:")
-            n_lv = st.select_slider("Уровень:", ["Beginner", "Intermediate", "Advanced"])
-            n_tg = st.selectbox("Цель:", ["Band 6.0", "Band 6.5", "Band 7.0+"])
-            if st.form_submit_button("Создать"):
-                if n_ph and n_pw:
-                    res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw)
-                    if res: 
+            st.caption("Create your profile / Создать профиль")
+            n_ph = st.text_input("ID (Phone):")
+            n_pw = st.text_input("Password:", type="password")
+            n_nm = st.text_input("Name / Имя:")
+            
+            # НОВЫЙ БЛОК: ВЫБОР ЯЗЫКА
+            n_lang = st.selectbox(
+                "Native Language / Родной язык:", 
+                ["Kazakh", "Russian", "English", "Chinese (Mandarin)", "Hindi", "Spanish", "French", "Arabic", "Turkish"]
+            )
+            
+            n_lv = st.select_slider("Level:", ["Beginner", "Intermediate", "Advanced"])
+            n_tg = st.selectbox("Target Band:", ["6.0", "6.5", "7.0", "7.5", "8.0+"])
+            
+            if st.form_submit_button("Start Learning 🚀"):
+                if n_ph and n_pw and n_nm:
+                    res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw, n_lang)
+                    if res == "EXISTS": st.error("User exists.")
+                    elif res: 
                         st.session_state.user = res
                         st.session_state.messages = []
                         st.rerun()
+                else: st.warning("Fill all fields")
 
 # ==========================================
 # ЭКРАН 2: ЧАТ С ГОЛОСОМ 🎙️
@@ -133,33 +164,37 @@ else:
     user = st.session_state.user
     
     with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/d/d3/Flag_of_Kazakhstan.svg", width=50)
+        # Логотип теперь нейтральный глобус или можно оставить флаг КЗ как бренд
         st.header(user['name'])
+        st.caption(f"{user['native_lang']} Speaker")
         st.caption(f"{user['level']} | {user['target']}")
         
-        topic = st.selectbox("📚 Тема:", ["General", "Work", "Studies", "Hometown", "Hobbies", "Travel"])
+        topic = st.selectbox("Topic:", ["General", "Work", "Studies", "Hometown", "Hobbies", "Travel", "Technology"])
         
         if "current_topic" not in st.session_state: st.session_state.current_topic = "General"
         if topic != st.session_state.current_topic:
             st.session_state.current_topic = topic
-            st.session_state.messages.append({"role": "system", "content": f"Topic changed to: {topic}. Ask a question about it."})
+            st.session_state.messages.append({"role": "system", "content": f"Topic changed to: {topic}. Ask a question."})
             st.rerun()
 
         st.divider()
-        if st.button("🧹 Сброс"):
+        if st.button("🧹 Clear Chat"):
             st.session_state.messages = []
             st.rerun()
-        if st.button("🚪 Выйти"):
+        if st.button("🚪 Logout"):
             st.session_state.user = None
             st.rerun()
 
-    st.title("Arman | Voice Coach 🎙️")
+    st.title("Arman | AI Coach 🎙️")
 
     # Инициализация
     if not st.session_state.messages:
         sys = get_system_prompt(user)
         st.session_state.messages.append({"role": "system", "content": sys})
-        wel = f"Salem, {user['name']}! Арман на связи. 🇰🇿 Говорим про **{topic}**. Нажми на микрофон, чтобы ответить голосом!"
+        
+        # Приветствие адаптируется под язык (просим GPT сгенерировать первое сообщение)
+        # Но для скорости оставим универсальное на английском
+        wel = f"Hello {user['name']}! I am Arman. I see your native language is **{user['native_lang']}**. \n\nLet's talk about **{topic}**. Press the microphone to speak!"
         st.session_state.messages.append({"role": "assistant", "content": wel})
         save_history(user["row_id"], st.session_state.messages)
 
@@ -170,42 +205,27 @@ else:
             with st.chat_message(msg["role"], avatar=avatar):
                 st.markdown(msg["content"])
 
-    # --- ЛОГИКА ВВОДА (ТЕКСТ ИЛИ ГОЛОС) ---
-    
-    # 1. Голосовой ввод
-    audio_val = st.audio_input("Нажми, чтобы сказать 🎙️")
-    
-    # 2. Текстовый ввод
-    text_val = st.chat_input("Или напиши сообщение...")
+    # Ввод
+    audio_val = st.audio_input("Speak / Говорить 🎙️")
+    text_val = st.chat_input("Type message...")
 
     user_input = None
-    
-    # Если есть голос - транскрибируем
     if audio_val:
-        with st.spinner("Слушаю..."):
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_val
-            )
+        with st.spinner("Listening..."):
+            transcription = client.audio.transcriptions.create(model="whisper-1", file=audio_val)
             user_input = transcription.text
-    
-    # Если есть текст - берем его
     elif text_val:
         user_input = text_val
 
-    # ОБРАБОТКА ОТВЕТА
     if user_input:
-        # Добавляем вопрос пользователя
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_input)
 
-        # Генерируем текст ответа
         with st.chat_message("assistant", avatar="👨‍🏫"):
             text_placeholder = st.empty()
             full_response = ""
             
-            # Текстовый поток
             stream = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
@@ -218,16 +238,13 @@ else:
                     text_placeholder.markdown(full_response + " ▌")
             text_placeholder.markdown(full_response)
             
-            # ГЕНЕРАЦИЯ АУДИО (TTS)
-            with st.spinner("Арман говорит... 🔊"):
+            with st.spinner("Speaking... 🔊"):
                 response = client.audio.speech.create(
                     model="tts-1",
-                    voice="onyx", # Мужской голос (есть еще alloy, echo, fable)
+                    voice="onyx",
                     input=full_response
                 )
-                # Авто-воспроизведение аудио
                 st.audio(response.content, format="audio/mp3", autoplay=True)
 
-        # Сохранение
         st.session_state.messages.append({"role": "assistant", "content": full_response})
         save_history(user["row_id"], st.session_state.messages)
