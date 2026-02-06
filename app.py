@@ -114,7 +114,7 @@ if not st.session_state.user:
                     st.warning("Заполните поля")
 
 # ==========================================
-# ЛОГИКА ЧАТА (ARMAN 3.1 - BILINGUAL)
+# ЛОГИКА ЧАТА (PREMIUM MENTOR PROMPT)
 # ==========================================
 else:
     user = st.session_state.user
@@ -122,81 +122,6 @@ else:
     with st.sidebar:
         st.header(user['name'])
         st.write(f"Level: {user['level']}")
+        st.write(f"Goal: {user['target']}")
         if st.button("Выйти"):
             st.session_state.user = None
-            st.session_state.messages = []
-            st.rerun()
-
-    st.title(f"Chat with Arman")
-
-    # --- НАСТРОЙКА МОЗГА ---
-    if not st.session_state.messages:
-        
-        # ЛОГИКА ПЕРЕВОДА (BILINGUAL SUPPORT)
-        if "Advanced" in user['level']:
-            lang_mode = "HARDCORE MODE: Speak ONLY English."
-        else:
-            # ДЛЯ НОВИЧКОВ: ПЕРЕВОД КЛЮЧЕВЫХ СЛОВ
-            lang_mode = """
-            ADAPTIVE BILINGUAL SUPPORT:
-            1. INSTRUCTIONS: Write mainly in English, BUT translate KEY words/tasks in brackets.
-               - IF student speaks Russian: "Let's focus on **Coherence** (Связность)."
-               - IF student speaks Kazakh: "Let's focus on **Coherence** (Байланыс)."
-            2. EXPLANATIONS: Explain errors fully in their native language (RU/KZ).
-            3. MIRRORING: If they write in KZ, answer with KZ translations. If RU, then RU.
-            """
-
-        sys_prompt = f"""
-        # IDENTITY
-        You are Arman, an IELTS Coach from Kazakhstan.
-        
-        # STUDENT
-        Name: {user['name']}, Level: {user['level']}, Target: {user['target']}
-
-        # STYLE MIRRORING
-        - If student is SHY -> Be warm & use emojis.
-        - If student is SERIOUS -> Be professional.
-        - If student is STRUGGLING -> Simplify & Translate.
-
-        # RULES
-        - NO MATH/PHYSICS: "Мен IELTS мұғалімімін. Есеп шығармаймын. 🇰🇿"
-        - NO FULL ESSAYS: Brainstorm only.
-        - SHORT ANSWERS: Max 3 sentences.
-
-        # LANGUAGE PROTOCOL
-        {lang_mode}
-
-        # ALGORITHM
-        1. Praise/Validate.
-        2. Correct errors (Sandwich method).
-        3. Ask ONE question.
-        """
-        
-        st.session_state.messages.append({"role": "system", "content": sys_prompt})
-        
-        # Приветствие с переводом
-        welcome = f"Salem, {user['name']}! Арман на связи. 🇰🇿\n\nTarget: {user['target']}. \n\nHow is your **mood** (көңіл-күйің/настроение)? Ready to **start** (бастау/начать)?"
-        st.session_state.messages.append({"role": "assistant", "content": welcome})
-        
-        save_history(user["row_id"], st.session_state.messages)
-
-    for msg in st.session_state.messages:
-        if msg["role"] != "system":
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-    if prompt := st.chat_input("..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            stream = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                stream=True, temperature=0.7
-            )
-            response = st.write_stream(stream)
-        
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        save_history(user["row_id"], st.session_state.messages)
