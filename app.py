@@ -6,7 +6,7 @@ import json
 # --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="IELTS Coach Arman", page_icon="🇰🇿", layout="centered")
 
-# --- 2. КОНТАКТЫ АДМИНА ---
+# --- 2. КОНТАКТЫ АДМИНА (ОБНОВЛЕНО) ---
 ADMIN_CONTACT = "https://t.me/aligassan_m" 
 
 # --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ---
@@ -97,31 +97,4 @@ if not st.session_state.user:
     with tab2:
         with st.form("reg"):
             n_ph = st.text_input("Телефон (ID):")
-            n_pw = st.text_input("Пароль:", type="password")
-            n_nm = st.text_input("Имя:")
-            n_lv = st.select_slider("Уровень:", ["Beginner (A1-A2)", "Intermediate (B1-B2)", "Advanced (C1-C2)"])
-            n_tg = st.selectbox("Цель:", ["Band 5.5", "Band 6.0", "Band 6.5", "Band 7.0", "Band 7.5+"])
-            
-            if st.form_submit_button("Создать аккаунт"):
-                if n_ph and n_pw and n_nm:
-                    res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw)
-                    if res == "EXISTS": st.error("Такой пользователь уже есть.")
-                    elif res:
-                        st.session_state.user = res
-                        st.session_state.messages = []
-                        st.rerun()
-                else:
-                    st.warning("Заполните поля")
-
-# ==========================================
-# ЛОГИКА ЧАТА (PREMIUM MENTOR PROMPT)
-# ==========================================
-else:
-    user = st.session_state.user
-    
-    with st.sidebar:
-        st.header(user['name'])
-        st.write(f"Level: {user['level']}")
-        st.write(f"Goal: {user['target']}")
-        if st.button("Выйти"):
-            st.session_state.user = None
+            n_pw = st.text_
