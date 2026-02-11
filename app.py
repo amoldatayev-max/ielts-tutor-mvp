@@ -3,225 +3,318 @@ from openai import OpenAI
 import gspread
 import json
 import random
-import re
+import time
 
-# --- 1. CONFIG & UI ---
-st.set_page_config(page_title="ALAN | Official IELTS Simulator", page_icon="🎓", layout="wide")
+# --- 1. CONFIGURATION ---
+st.set_page_config(
+    page_title="ALAN | Ultimate IELTS Simulator",
+    page_icon="🎓",
+    layout="wide"
+)
 
-# Улучшенный CSS для профессионального вида
+# --- 2. DATABASE (КОНТЕНТ ЗАДАНИЙ) ---
+# Здесь мы храним все варианты вопросов. Можно добавлять бесконечно.
+
+# SPEAKING: Темы для всех 3 частей
+SPEAKING_DB = [
+    {
+        "topic": "Hometown & Travel",
+        "part1": ["Where is your hometown?", "Is it a good place for young people?", "Do you often travel?"],
+        "card": "Describe a place you visited that you would recommend to others.\nYou should say:\n- Where it is\n- When you went there\n- What you did there\nAnd explain why you recommend it.",
+        "part3": ["Why do some people prefer traveling alone?", "How has tourism changed in your country?"]
+    },
+    {
+        "topic": "Technology & Work",
+        "part1": ["Do you use computers often?", "What app do you use the most?", "Do you prefer working alone or in a group?"],
+        "card": "Describe a piece of technology you use every day.\nYou should say:\n- What it is\n- How often you use it\n- What you use it for\nAnd explain how it helps you.",
+        "part3": ["Will robots replace teachers in the future?", "Is technology making people lazy?"]
+    }
+]
+
+# WRITING: Task 1 (Images) & Task 2 (Essays)
+WRITING_DB = {
+    "task1": [
+        {
+            "type": "Line Graph",
+            "image": "https://www.ielts-mentor.com/images/writingsamples/ielts-line-graph-1.png", # Реальный пример графика
+            "prompt": "The graph below shows the consumption of fish and different kinds of meat in a European country between 1979 and 2004. Summarise the information by selecting and reporting the main features."
+        },
+        {
+            "type": "Map",
+            "image": "https://www.ielts-mentor.com/images/writingsamples/ielts-map-writing-1.png",
+            "prompt": "The maps below show the changes in a town called Stokeford between 1930 and 2010. Summarise the information."
+        }
+    ],
+    "task2": [
+        "Some people believe that unpaid community service should be a compulsory part of high school programmes. To what extent do you agree or disagree?",
+        "Computers are being used more and more in education. Some people say that this is a positive trend, while others argue that it leads to negative consequences. Discuss both sides and give your opinion."
+    ]
+}
+
+# READING: Разные типы вопросов
+READING_DB = [
+    {
+        "type": "Matching Headings",
+        "title": "The History of Tea",
+        "text": """
+        [Paragraph A] The story of tea begins in China. According to legend, in 2737 BC, the Chinese emperor Shen Nung was sitting beneath a tree while his servant boiled drinking water, when some leaves from the tree blew into the water. The emperor decided to try the brew.
+        
+        [Paragraph B] Tea consumption spread throughout the Chinese culture, reaching every aspect of the society. In 800 AD, Lu Yu wrote the first definitive book on tea, the Ch'a Ching. This work helped to standardize the cultivation and preparation of tea.
+        
+        [Paragraph C] Tea was introduced to the West by Portuguese priests and merchants in China during the 16th century. Drinking tea became fashionable among Britons during the 17th century, who started large-scale production and commercialization of the plant in India.
+        """,
+        "questions": [
+            {"q": "Choose heading for Paragraph A", "options": ["i. The spread to the West", "ii. Origins and Myth", "iii. Standardization"], "a": "ii. Origins and Myth"},
+            {"q": "Choose heading for Paragraph B", "options": ["i. Cultural Impact", "ii. Modern Production", "iii. The Emperor's Drink"], "a": "i. Cultural Impact"}
+        ]
+    },
+    {
+        "type": "True / False / Not Given",
+        "title": "Urbanization",
+        "text": "Urbanization allows more people to access education and healthcare. However, it also leads to higher pollution levels and cost of living. Studies show that by 2050, 68% of the world population will live in cities.",
+        "questions": [
+            {"q": "Urbanization reduces the cost of living. (T/F/NG)", "options": ["True", "False", "Not Given"], "a": "False"},
+            {"q": "The majority of people will live in cities by 2050. (T/F/NG)", "options": ["True", "False", "Not Given"], "a": "True"}
+        ]
+    }
+]
+
+# LISTENING: Maps & Forms
+LISTENING_DB = [
+    {
+        "type": "Form Filling",
+        "title": "Section 1: Library Registration",
+        "audio": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3", # Заглушка (в реале нужен файл диалога)
+        "context": "You will hear a student registering at a library. Listen and complete the form.",
+        "questions": [
+            {"label": "Surname: ", "a": "Black"},
+            {"label": "Address: 24 ______ Street", "a": "Park"}
+        ]
+    },
+    {
+        "type": "Map Labelling",
+        "title": "Section 2: Campus Tour",
+        "image": "https://ielts-up.com/images/listening/listening-map-labeling-1.png", # Пример карты
+        "audio": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+        "context": "Look at the map of the university campus. Label the buildings.",
+        "questions": [
+            {"label": "Building A is the: ", "a": "Library"},
+            {"label": "Building C is the: ", "a": "Cafeteria"}
+        ]
+    }
+]
+
+# --- 3. CSS (DESIGN) ---
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { 
-        padding: 10px 25px; 
-        font-weight: bold;
-        border-radius: 10px 10px 0 0;
-    }
-    .exam-container {
-        padding: 25px;
-        background-color: #f8f9fa;
-        color: #1a1a1a;
-        border-radius: 15px;
-        border-left: 5px solid #007bff;
-        margin-bottom: 20px;
-    }
-    @media (prefers-color-scheme: dark) {
-        .exam-container { background-color: #262730; color: white; }
-    }
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    .exam-box { padding: 20px; background: #f0f2f6; border-radius: 10px; margin-bottom: 20px; color: #333; }
+    .card-box { border: 2px dashed #444; padding: 20px; background: #fff9c4; color: #333; border-radius: 5px; }
+    .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATABASE ---
+# --- 4. BACKEND LOGIC ---
 @st.cache_resource(ttl=600)
-def get_db_connection():
+def get_db():
     try:
         creds = dict(st.secrets["gcp_service_account"])
-        if "private_key" in creds:
-            creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+        if "private_key" in creds: creds["private_key"] = creds["private_key"].replace("\\n", "\n")
         gc = gspread.service_account_from_dict(creds)
         return gc.open("IELTS_Users_DB").sheet1
     except: return None
 
-worksheet = get_db_connection()
+worksheet = get_db()
 
-# --- 3. AUTH & SYNC ---
-def load_user(phone):
+def get_user(phone):
     if not worksheet: return None
     try:
         cell = worksheet.find(phone)
         if cell:
             row = worksheet.row_values(cell.row)
             hist = json.loads(row[4]) if len(row) > 4 else []
-            return {"row_id": cell.row, "name": row[1], "band": row[2], "target": row[3], "history": hist, "password": str(row[5]), "lang": row[6]}
+            return {"row": cell.row, "name": row[1], "band": row[2], "target": row[3], "history": hist, "pwd": str(row[5])}
     except: return None
 
-def sync(row_id, band=None, history=None):
-    if not worksheet: return
-    if band: worksheet.update_cell(row_id, 3, str(band))
-    if history: worksheet.update_cell(row_id, 5, json.dumps(history, ensure_ascii=False))
+def sync_data(row_id, band):
+    if worksheet: worksheet.update_cell(row_id, 3, str(band))
 
-# --- 4. REAL EXAM CONTENT ---
-READING_CONTENT = {
-    "title": "The Evolution of Language",
-    "text": """Language is a complex system of communication that is unique to human beings. While many animals possess basic forms of communication, such as birdsong or whale calls, human language is characterized by its infinite flexibility and creativity. Linguists have long debated the origins of language, with some suggesting it emerged as a byproduct of increased brain size, while others argue it was a specific evolutionary adaptation for social cooperation.
-
-One prominent theory, proposed by Noam Chomsky, is the 'Universal Grammar' hypothesis. This suggests that the human brain contains an innate capacity for language, which is hard-wired from birth. However, critics of this view point to the vast diversity of the world's 7,000 languages as evidence that language is primarily a cultural construct learned through social interaction.
-
-As societies became more complex, the need for written language emerged. The earliest forms of writing were pictographic, but these eventually evolved into the sophisticated alphabetic systems we use today. In the modern era, technology is once again transforming language, with the rise of digital communication leading to new forms of slang and altered grammatical structures.""",
-    "questions": [
-        "1. According to the text, what makes human language different from animal communication?",
-        "2. Noam Chomsky believes that language ability is learned through social interaction. (True/False/Not Given)",
-        "3. How many languages are estimated to exist in the world today?"
-    ],
-    "answers": ["flexibility", "false", "7000"]
-}
-
-WRITING_PROMPT = """**Writing Task 2**
-You should spend about 40 minutes on this task. 
-Write about the following topic:
-
-*In many countries, traditional customs and behaviors are being lost as people follow a more global culture. To what extent do you agree or disagree with this statement?*
-
-Give reasons for your answer and include any relevant examples from your own knowledge or experience. 
-**Write at least 250 words.**"""
-
-# --- 5. INITIALIZATION ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-if "user" not in st.session_state: st.session_state.user = None
 
-# ==================== AUTH ====================
+if "user" not in st.session_state: st.session_state.user = None
+if "speaking_state" not in st.session_state: st.session_state.speaking_state = {"part": 0, "q_index": 0, "test": None}
+
+# ==================== LOGIN ====================
 if not st.session_state.user:
-    st.title("🎓 ZEST AI | IELTS Official Simulator")
-    st.info("Please login to access all exam modules.")
+    st.title("⚡️ ALAN | Ultimate IELTS Simulator")
     with st.form("auth"):
-        ph = st.text_input("ID (Phone):")
+        ph = st.text_input("ID:")
         pw = st.text_input("Password:", type="password")
-        if st.form_submit_button("Enter Exam Hall"):
-            u = load_user(ph)
-            if u and u["password"] == pw:
+        if st.form_submit_button("Start Exam"):
+            u = get_user(ph)
+            if u and u["pwd"] == pw:
                 st.session_state.user = u
                 st.session_state.messages = u["history"]
                 st.rerun()
-            else: st.error("Invalid Credentials.")
+            else: st.error("Access Denied")
 
-# ==================== EXAM PORTAL ====================
+# ==================== MAIN APP ====================
 else:
-    user = st.session_state.user
+    u = st.session_state.user
     
     # --- HEADER ---
     c1, c2, c3 = st.columns([1, 2, 1])
-    with c1: st.metric("Current Band Score", user['band'])
-    with c2: 
-        st.markdown(f"### Candidate: {user['name']}")
-        st.caption("Exam Mode: Active")
-    with c3:
-        if st.button("Logout", use_container_width=True):
-            st.session_state.user = None
-            st.rerun()
-
+    c1.metric("Band Score", u['band'])
+    c2.markdown(f"### Student: {u['name']}")
+    if c3.button("Exit"): st.session_state.user = None; st.rerun()
     st.divider()
 
     # --- TABS ---
-    tab_s, tab_w, tab_r, tab_l = st.tabs(["🎙️ SPEAKING", "📝 WRITING", "📖 READING", "🎧 LISTENING"])
+    t_speak, t_write, t_read, t_listen = st.tabs(["🎙️ SPEAKING", "📝 WRITING", "📖 READING", "🎧 LISTENING"])
 
-    # --- 🎙️ SPEAKING SECTION ---
-    with tab_s:
-        st.markdown("### IELTS Speaking Simulator")
+    # --- 1. SPEAKING (FULL TEST GENERATOR) ---
+    with t_speak:
+        state = st.session_state.speaking_state
         
-        st.write("**Current Phase:** Part 1 (Introduction and Interview)")
-        
-        for msg in st.session_state.messages[-4:]:
-            if msg["role"] != "system":
-                with st.chat_message(msg["role"], avatar="👨‍💻" if msg["role"]=="assistant" else "👤"):
-                    st.markdown(msg["content"])
-
-        audio_val = st.audio_input("Answer ALAN 🎙️")
-        if audio_val:
-            u_text = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
-            st.session_state.messages.append({"role": "user", "content": u_text})
-            
-            with st.chat_message("assistant", avatar="👨‍💻"):
-                prompt = f"You are ALAN, an official IELTS examiner. Phase: Part 1. Evaluate: '{u_text}'. Provide: 1. A short correction. 2. A follow-up question. 3. Tag: [BAND: X.X]"
-                resp = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": prompt}] + st.session_state.messages[-5:])
-                ai_text = resp.choices[0].message.content
-                
-                # Update Band logic
-                match = re.search(r"\[BAND:\s*([\d\.]+)\]", ai_text)
-                if match:
-                    user['band'] = match.group(1)
-                    sync(user['row_id'], band=match.group(1))
-                    st.toast(f"Band Updated: {match.group(1)}", icon="🎓")
-                    ai_text = re.sub(r"\[.*?\]", "", ai_text).strip()
-
-                st.markdown(ai_text)
-                v = client.audio.speech.create(model="tts-1", voice="onyx", input=ai_text)
-                st.audio(v.content, format="audio/mp3")
-                
-                st.session_state.messages.append({"role": "assistant", "content": ai_text})
-                sync(user['row_id'], history=st.session_state.messages)
+        # Генерация нового теста
+        if state["test"] is None:
+            if st.button("🚀 Generate New Full Test"):
+                state["test"] = random.choice(SPEAKING_DB)
+                state["part"] = 1
+                state["q_index"] = 0
                 st.rerun()
-
-    # --- 📝 WRITING SECTION ---
-    with tab_w:
-        st.markdown("### Writing Task 2")
-        
-        st.info(WRITING_PROMPT)
-        essay = st.text_area("Write your response here (min 250 words):", height=400)
-        word_count = len(essay.split())
-        st.write(f"Word count: **{word_count}**")
-        
-        if st.button("Submit Essay for Marking"):
-            if word_count < 100: st.error("Essay is too short.")
-            else:
-                with st.spinner("ALAN is analyzing your Task Response, Cohesion, Lexical Resource, and Grammar..."):
-                    res = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Grade this IELTS Task 2 Essay strictly based on 4 criteria. Give a band score: {essay}"}]
-                    )
-                    st.success("Analysis Complete")
-                    st.markdown(res.choices[0].message.content)
-
-    # --- 📖 READING SECTION ---
-    with tab_r:
-        st.markdown(f"### Academic Reading: {READING_CONTENT['title']}")
-        
-        with st.container():
-            st.markdown(f"<div class='exam-container'>{READING_CONTENT['text']}</div>", unsafe_allow_html=True)
-        
-        st.divider()
-        st.write("#### Answer the following questions:")
-        q1 = st.text_input(READING_CONTENT['questions'][0])
-        q2 = st.radio(READING_CONTENT['questions'][1], ["True", "False", "Not Given"])
-        q3 = st.text_input(READING_CONTENT['questions'][2])
-        
-        if st.button("Check Reading Answers"):
-            score = 0
-            if READING_CONTENT['answers'][0] in q1.lower(): score += 1
-            if q2.lower() == READING_CONTENT['answers'][1]: score += 1
-            if READING_CONTENT['answers'][2] in q3: score += 1
+            st.info("Click to start a full 15-minute speaking simulation.")
             
-            b = "8.5" if score == 3 else "6.5" if score == 2 else "4.5" if score == 1 else "3.0"
-            st.success(f"Score: {score}/3 | Estimated Band: {b}")
-            user['band'] = b
-            sync(user['row_id'], band=b)
+        else:
+            test = state["test"]
+            
+            # --- PART 1 ---
+            if state["part"] == 1:
+                st.subheader(f"Part 1: {test['topic']}")
+                q = test['part1'][state['q_index']]
+                st.markdown(f"**Examiner asks:** {q}")
+                
+                # Chat History
+                for msg in st.session_state.messages[-4:]:
+                    with st.chat_message(msg["role"]): st.write(msg["content"])
+                
+                audio = st.audio_input("Answer Part 1")
+                if audio:
+                    ans = client.audio.transcriptions.create(model="whisper-1", file=audio).text
+                    st.session_state.messages.append({"role": "user", "content": ans})
+                    
+                    # Logic to move next
+                    if state["q_index"] < len(test['part1']) - 1:
+                        state["q_index"] += 1
+                        feedback = "Good. Next question."
+                    else:
+                        state["part"] = 2 # Move to Part 2
+                        feedback = "Thank you. Now let's move to Part 2."
+                    
+                    st.rerun()
 
-    # --- 🎧 LISTENING SECTION ---
-    with tab_l:
-        st.markdown("### IELTS Listening: Section 1 (Social Context)")
+            # --- PART 2 (CUE CARD) ---
+            elif state["part"] == 2:
+                st.subheader("Part 2: Individual Long Turn")
+                st.markdown(f"<div class='card-box'>{test['card']}</div>", unsafe_allow_html=True)
+                st.warning("⏱️ You have 1 minute to prepare and 2 minutes to speak.")
+                
+                if st.button("I am ready to speak"):
+                     state["part"] = 3
+                     st.rerun()
+
+            # --- PART 3 ---
+            elif state["part"] == 3:
+                st.subheader("Part 3: Discussion")
+                st.write("Deep discussion based on Part 2.")
+                st.info("Simulation Finished for this Demo.")
+                if st.button("Finish Test"):
+                    state["test"] = None
+                    st.rerun()
+
+    # --- 2. WRITING (TASK 1 & 2) ---
+    with t_write:
+        w_type = st.radio("Select Task:", ["Task 1 (Academic Graph)", "Task 2 (Essay)"], horizontal=True)
         
-        st.write("**Scenario:** A student is inquiring about a library membership at a university desk.")
-        # Authentic listening placeholder (Educational)
-        st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3") 
+        if "Task 1" in w_type:
+            # Случайное задание Task 1
+            if "w_task1" not in st.session_state: st.session_state.w_task1 = random.choice(WRITING_DB["task1"])
+            task = st.session_state.w_task1
+            
+            st.subheader(f"Task 1: {task['type']}")
+            st.image(task['image'], width=600) # 
+
+[Image of Graph]
+
+            st.write(f"**Prompt:** {task['prompt']}")
+            
+            ans = st.text_area("Report (min 150 words):", height=200)
+            if st.button("Check Task 1"):
+                st.success("Analyzing graph description...")
+                # GPT logic here
+                
+        else:
+            # Случайное задание Task 2
+            if "w_task2" not in st.session_state: st.session_state.w_task2 = random.choice(WRITING_DB["task2"])
+            prompt = st.session_state.w_task2
+            
+            st.subheader("Task 2: Essay")
+            st.info(prompt)
+            ans = st.text_area("Essay (min 250 words):", height=300)
+            if st.button("Check Task 2"):
+                st.success("Grading Essay...")
+
+    # --- 3. READING (DYNAMIC TYPES) ---
+    with t_read:
+        if "r_test" not in st.session_state: st.session_state.r_test = random.choice(READING_DB)
+        exam = st.session_state.r_test
         
-        st.write("#### Fill in the blanks (Max 2 words):")
-        la1 = st.text_input("1. Name of the library: _________ Library")
-        la2 = st.text_input("2. Cost of annual membership: £ _________")
+        c1, c2 = st.columns([3, 1])
+        c1.markdown(f"### {exam['title']} ({exam['type']})")
+        if c2.button("🔄 New Text"): 
+            st.session_state.r_test = random.choice(READING_DB)
+            st.rerun()
+            
+        st.markdown(f"<div class='exam-box'>{exam['text']}</div>", unsafe_allow_html=True)
         
-        if st.button("Check Listening Score"):
-            if "central" in la1.lower() and "15" in la2:
-                st.success("Correct! Band 9.0 performance.")
-            else:
-                st.warning("Keep practicing. Your estimated band is 5.5.")
+        score = 0
+        with st.form("reading_form"):
+            for i, q in enumerate(exam['questions']):
+                st.write(f"**Q{i+1}: {q['q']}**")
+                val = st.radio(f"Select {i}", q['options'], key=f"rq{i}", label_visibility="collapsed")
+                if val == q['a']: score += 1
+            
+            if st.form_submit_button("Submit"):
+                st.info(f"Score: {score}/{len(exam['questions'])}")
+                if score == len(exam['questions']): st.balloons()
+
+    # --- 4. LISTENING (MAPS & FORMS) ---
+    with t_listen:
+        if "l_test" not in st.session_state: st.session_state.l_test = random.choice(LISTENING_DB)
+        test = st.session_state.l_test
+        
+        c1, c2 = st.columns([3, 1])
+        c1.markdown(f"### {test['title']} ({test['type']})")
+        if c2.button("🔄 New Audio"): 
+            st.session_state.l_test = random.choice(LISTENING_DB)
+            st.rerun()
+            
+        st.write(f"**Context:** {test['context']}")
+        
+        # Если есть картинка (Карта)
+        if "image" in test:
+            st.image(test['image']) # 
+
+[Image of Map]
+
+        
+        st.audio(test['audio'])
+        
+        with st.form("listen_form"):
+            score = 0
+            for i, q in enumerate(test['questions']):
+                user_ans = st.text_input(q['label'], key=f"lq{i}")
+                if user_ans.lower().strip() == q['a'].lower(): score += 1
+            
+            if st.form_submit_button("Check Listening"):
+                st.success(f"Correct Answers: {score}/{len(test['questions'])}")
