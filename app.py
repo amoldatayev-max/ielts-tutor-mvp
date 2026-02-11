@@ -4,45 +4,49 @@ import gspread
 import json
 import random
 
-# --- 1. НАСТРОЙКИ ---
-st.set_page_config(page_title="ZEST AI | ALAN", page_icon="⚡️", layout="centered")
+# --- 1. НАСТРОЙКИ (ТУРБО) ---
+st.set_page_config(page_title="ALAN | ZEST AI", page_icon="⚡️", layout="centered")
 
-# --- 2. СТИЛИ (CSS) ---
-# Делаем красиво: прячем лишнее, приклеиваем микрофон вниз
-sticky_style = """
+# --- 2. CSS: СТЕЛС-РЕЖИМ И ИНТЕРФЕЙС ---
+stealth_css = """
 <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* МИКРОФОН - ПЛАВАЮЩИЙ ВНИЗУ */
+    /* 1. УБИРАЕМ ВСЕ НАДПИСИ STREAMLIT */
+    #MainMenu {visibility: hidden;} /* Меню справа сверху */
+    footer {visibility: hidden;}    /* Надпись внизу */
+    header {visibility: hidden;}    /* Красная полоска сверху */
+    .stDeployButton {display:none;} /* Кнопка Deploy */
+    
+    /* 2. МИКРОФОН (ЗАКРЕПЛЕН ВНИЗУ) */
     [data-testid="stAudioInput"] {
         position: fixed;
-        bottom: 100px;
+        bottom: 90px;
         z-index: 999;
         left: 0; right: 0;
         margin: 0 auto;
         width: 100%;
         max-width: 44rem;
-        background-color: rgba(255, 255, 255, 0.9);
+        background-color: rgba(255, 255, 255, 0.95);
         border-radius: 15px;
-        padding: 10px;
-        box-shadow: 0px -2px 10px rgba(0,0,0,0.1);
+        padding: 8px;
+        box-shadow: 0px -4px 10px rgba(0,0,0,0.05);
+        border: 1px solid #eee;
     }
     
-    /* Темная тема */
+    /* Темная тема для микрофона */
     @media (prefers-color-scheme: dark) {
         [data-testid="stAudioInput"] {
             background-color: rgba(38, 39, 48, 0.95);
+            border: 1px solid #333;
         }
     }
     
-    .stMainBlockContainer { padding-bottom: 220px; }
+    /* Отступ чтобы чат не проваливался под кнопки */
+    .stMainBlockContainer { padding-bottom: 200px; }
 </style>
 """
-st.markdown(sticky_style, unsafe_allow_html=True)
+st.markdown(stealth_css, unsafe_allow_html=True)
 
-# --- 3. БД ---
+# --- 3. БД (БЫСТРОЕ ПОДКЛЮЧЕНИЕ) ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -84,7 +88,6 @@ def save_history(row_id, messages):
     try: worksheet.update_cell(row_id, 5, json.dumps(messages, ensure_ascii=False))
     except: pass
 
-# Список слов для "Слова дня"
 def get_wod():
     words = [
         ("Ubiquitous", "Вездесущий (Everywhere)"),
@@ -105,9 +108,9 @@ if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
 if "wod" not in st.session_state: st.session_state.wod = get_wod()
 
-# ==================== ЭКРАН 1: ВХОД ====================
+# ==================== ВХОД ====================
 if not st.session_state.user:
-    st.title("⚡️ ZEST AI | ALAN")
+    st.title("⚡️ ALAN | ZEST AI")
     tab1, tab2 = st.tabs(["Log In", "Sign Up"])
     with tab1:
         with st.form("login"):
@@ -135,46 +138,40 @@ if not st.session_state.user:
                     st.session_state.messages = []
                     st.rerun()
 
-# ==================== ЭКРАН 2: ЧАТ ====================
+# ==================== ЧАТ ====================
 else:
     user = st.session_state.user
     
-    # --- БОКОВАЯ ПАНЕЛЬ (ВЕРНУЛСЯ WORD OF DAY и CLEAR) ---
     with st.sidebar:
-        # 1. Слово дня (Крупно)
         st.info(f"💡 **Word of the Day:**\n\n### {st.session_state.wod[0]}\n_{st.session_state.wod[1]}_")
-        
         st.divider()
         st.caption(f"👤 {user['name']}")
         
-        # 2. Кнопка Очистить (New Topic)
         if st.button("🧹 New Topic (Clear)"):
             st.session_state.messages = []
             st.rerun()
-            
-        # 3. Кнопка Выйти
         if st.button("🚪 Logout"):
             st.session_state.user = None
             st.rerun()
 
-    st.title("ZEST AI | ALAN ⚡️")
+    st.title("ALAN ⚡️")
 
-    # --- ИНИЦИАЛИЗАЦИЯ (ПРОМПТ) ---
+    # --- СИСТЕМНЫЙ МОЗГ (TURBO MODE) ---
     if not st.session_state.messages:
         sys = f"""
-        Role: You are ALAN, an IELTS Coach.
-        User Native Lang: {user['native_lang']}.
+        Role: IELTS Coach ALAN.
+        User Lang: {user['native_lang']}.
         
-        CRITICAL RULES:
-        1. BE SHORT. Max 2-3 sentences.
-        2. CORRECT ERRORS immediately. If user says "I go home yesterday", say: "Did you mean: I *went* home?"
-        3. ASK QUESTIONS. Use Socratic method.
-        4. EXPLAIN in {user['native_lang']} if needed, but PRACTICE in English.
+        RULES FOR SPEED:
+        1. MAX 2 SENTENCES per reply. Be extremely concise.
+        2. IF ERROR: Correct it immediately.
+        3. IF NO ERROR: Ask next question.
+        4. Explain grammar in {user['native_lang']}. Practice in English.
         """
         st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! I'm ALAN. Ready? Press 🎙️."})
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready? Press 🎙️."})
 
-    # --- ИСТОРИЯ ЧАТА ---
+    # --- ИСТОРИЯ ---
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             av = "👨‍💻" if msg["role"] == "assistant" else "👤"
@@ -187,9 +184,9 @@ else:
 
     user_in = None
     if audio_val:
-        with st.spinner("Listening..."):
-            try: user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
-            except: st.error("Mic error")
+        # Убрал spinner с текстом, чтобы не мелькало
+        try: user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
+        except: st.error("Mic error")
     elif text_val:
         user_in = text_val
 
@@ -203,9 +200,9 @@ else:
             full_resp = ""
             ph = st.empty()
             
-            # Текст
+            # ИСПОЛЬЗУЕМ GPT-4o-MINI ДЛЯ СКОРОСТИ
             stream = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini", # <-- TURBO SPEED
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
                 stream=True
             )
@@ -215,10 +212,10 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
-            # Звук (Оникс)
+            # ЗВУК
             try:
+                # Опционально: alloy быстрее грузится чем onyx, но onyx солиднее. Оставим onyx.
                 response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
-                st.caption("🔊 ALAN:")
                 st.audio(response.content, format="audio/mp3")
             except: pass
 
