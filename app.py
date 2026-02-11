@@ -7,15 +7,35 @@ import random
 # --- 1. НАСТРОЙКИ ---
 st.set_page_config(page_title="ZEST AI | ALAN Coach", page_icon="⚡️", layout="centered")
 
-# --- 2. СКРЫВАЕМ ЛИШНЕЕ ---
-hide_st_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
-            </style>
-            """
-st.markdown(hide_st_style, unsafe_allow_html=True)
+# --- 2. CSS МАГИЯ (ПРИКЛЕИВАЕМ МИКРОФОН ВНИЗ) ---
+# Этот код делает так, что микрофон всегда висит над строкой ввода
+sticky_mic_css = """
+<style>
+    /* Скрываем меню Streamlit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    /* Приклеиваем блок аудио вниз */
+    [data-testid="stAudioInput"] {
+        position: fixed;
+        bottom: 80px; /* Отступ снизу (над текстовым полем) */
+        z-index: 1000;
+        width: 100%;
+        max-width: 44rem; /* Ограничение ширины как у чата */
+        background-color: transparent; /* Прозрачный фон */
+        margin: 0 auto;
+        left: 0;
+        right: 0;
+    }
+    
+    /* Добавляем пустое место внизу чата, чтобы сообщения не прятались под микрофоном */
+    .stMainBlockContainer {
+        padding-bottom: 150px;
+    }
+</style>
+"""
+st.markdown(sticky_mic_css, unsafe_allow_html=True)
 
 # --- 3. ПОДКЛЮЧЕНИЕ БД ---
 @st.cache_resource(ttl=600)
@@ -117,7 +137,6 @@ else:
     with st.sidebar:
         st.info(f"💡 **Word of the Day:**\n\n**{st.session_state.wod[0]}**\n_{st.session_state.wod[1]}_")
         
-        # Прогресс
         user_msg_count = len([m for m in st.session_state.messages if m["role"] == "user"])
         st.progress(min(user_msg_count / 50, 1.0))
         st.caption(f"XP: {user_msg_count} actions")
@@ -125,7 +144,6 @@ else:
         st.divider()
         st.caption(f"User: {user['name']}")
         
-        # Скачивание чата
         chat_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages if m['role'] != 'system'])
         st.download_button("📥 Download Lesson", chat_text, file_name="lesson.txt")
         
@@ -136,43 +154,40 @@ else:
 
     st.title("ZEST AI | ALAN ⚡️")
 
-    # --- СИСТЕМНЫЙ ПРОМПТ (МОЗГ АЛАНА) ---
+    # Инициализация сообщений
     if not st.session_state.messages:
         sys = f"Role: IELTS Coach ALAN. Student Lang: {user['native_lang']}. Style: Socratic, Brief (2-3 sentences). Explain errors in Native Lang, practice in English. Strict Focus on IELTS."
         st.session_state.messages.append({"role": "system", "content": sys})
-        
-        # Приветствие
         st.session_state.messages.append({"role": "assistant", "content": f"Hello {user['name']}! I am ALAN. Ready to practice? (Press 🎙️)"})
 
-    # Вывод истории
+    # Вывод истории (Убираем аватарки для экономии места на мобильных, или оставляем)
     for i, msg in enumerate(st.session_state.messages):
         if msg["role"] != "system":
-            # Меняем иконку (можно поставить робота или учителя)
             av = "👨‍💻" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # ВВОД (АУДИО ИЛИ ТЕКСТ)
+    # --- ВВОД ---
+    # ВАЖНО: Мы ставим аудио-инпут, а CSS (в начале кода) сам притянет его вниз
     audio_val = st.audio_input("Speak / Говорить 🎙️")
-    text_val = st.chat_input("Type...")
+    
+    # Текстовый ввод всегда приклеен к самому низу
+    text_val = st.chat_input("Type here...")
 
     user_in = None
     if audio_val:
-        with st.spinner("Alan is listening..."):
-            try:
-                user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
+        with st.spinner("Listening..."):
+            try: user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
             except: st.error("Mic error")
     elif text_val:
         user_in = text_val
 
-    # ОБРАБОТКА ОТВЕТА
+    # ОБРАБОТКА
     if user_in:
-        # 1. Показываем вопрос юзера
         st.session_state.messages.append({"role": "user", "content": user_in})
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_in)
 
-        # 2. Генерируем ответ Алана
         with st.chat_message("assistant", avatar="👨‍💻"):
             full_resp = ""
             ph = st.empty()
@@ -187,17 +202,13 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
-            # 3. Генерируем ЗВУК (Голос Onyx идеально подходит для имени Алан)
+            # ЗВУК
             try:
                 response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
-                
-                # Подпись плеера
                 st.caption("🔊 ALAN'S VOICE:")
                 st.audio(response.content, format="audio/mp3")
-                
             except Exception as e:
                 st.error("Audio error")
 
-        # 4. Сохраняем в историю
         st.session_state.messages.append({"role": "assistant", "content": full_resp})
         save_history(user["row_id"], st.session_state.messages)
