@@ -5,55 +5,19 @@ import json
 import random
 
 # --- 1. НАСТРОЙКИ ---
-st.set_page_config(page_title="ALAN | IELTS Platform", page_icon="⚡️", layout="centered")
+st.set_page_config(page_title="ALAN | IELTS", page_icon="⚡️", layout="centered")
 
-# --- 2. CSS (ДИЗАЙН ИНТЕРФЕЙСА) ---
-css_fix = """
+# --- 2. CSS (ТОЛЬКО СКРЫВАЕМ ЛОГО, НЕ ТРОГАЕМ КНОПКИ) ---
+# Мы убрали весь код, который двигал кнопки. Теперь они встанут как надо.
+st.markdown("""
 <style>
-    /* 1. Скрываем лишнее */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
-    /* 2. НАСТРОЙКА АУДИО-ПАНЕЛИ (DOCK STATION) */
-    [data-testid="stAudioInput"] {
-        position: fixed;
-        bottom: 70px; /* Высота над полем ввода текста */
-        left: 0;
-        right: 0;
-        z-index: 1000; /* Поверх всего */
-        width: 100%;
-        max-width: 44rem; /* Ограничение ширины для ПК */
-        margin: 0 auto; /* Центрирование */
-        
-        background-color: #0e1117; /* Цвет фона (подберите под вашу тему, сейчас темный) */
-        border-top: 1px solid #333; /* Линия разделителя */
-        padding: 10px 5px;
-    }
-
-    /* Адаптация под светлую тему (авто) */
-    @media (prefers-color-scheme: light) {
-        [data-testid="stAudioInput"] {
-            background-color: #ffffff;
-            border-top: 1px solid #eee;
-        }
-    }
-
-    /* 3. КОРРЕКЦИЯ ОТСТУПОВ */
-    /* Чтобы чат не прятался за панелью управления */
-    .stMainBlockContainer {
-        padding-bottom: 200px;
-    }
-    
-    /* Убираем лишние отступы внутри самого аудио виджета */
-    .stAudio {
-        margin-top: 0 !important;
-    }
 </style>
-"""
-st.markdown(css_fix, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- 3. БД ---
+# --- 3. БАЗА ДАННЫХ ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -108,14 +72,14 @@ if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
 if "wod" not in st.session_state: st.session_state.wod = get_wod()
 
-# ==================== ВХОД ====================
+# ==================== ЭКРАН 1: ВХОД ====================
 if not st.session_state.user:
-    st.title("⚡️ ALAN | IELTS Platform")
+    st.title("⚡️ ALAN | IELTS")
     tab1, tab2 = st.tabs(["Log In", "Sign Up"])
     with tab1:
         with st.form("login"):
             ph = st.text_input("ID:")
-            pw = st.text_input("Password:", type="password")
+            pw = st.text_input("Pass:", type="password")
             if st.form_submit_button("Start"):
                 ud = load_user(ph)
                 if ud and str(ud["password"]).strip() == str(pw).strip():
@@ -136,7 +100,7 @@ if not st.session_state.user:
                     st.session_state.messages = []
                     st.rerun()
 
-# ==================== ЧАТ ====================
+# ==================== ЭКРАН 2: ЧАТ ====================
 else:
     user = st.session_state.user
     
@@ -151,24 +115,24 @@ else:
 
     st.title("ALAN ⚡️")
 
-    # Инициализация
+    # Мозг
     if not st.session_state.messages:
-        sys = f"Role: IELTS Coach ALAN. Lang: {user['native_lang']}. Style: Brief, Correct errors. Ask next question."
+        sys = f"Role: IELTS Coach ALAN. Lang: {user['native_lang']}. Style: Brief (2 sentences). Correct errors. Ask questions."
         st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": "Let's start! What topic should we discuss?"})
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! I'm ready. (Use 🎙️ or Type)"})
 
-    # Вывод сообщений
+    # История сообщений
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             av = "👨‍💻" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # --- ЗОНА ВВОДА ---
+    # --- ЗОНА ВВОДА (БЕЗ CSS МАГИИ) ---
+    st.write("---") # Просто линия разделитель
     
-    # 1. АУДИО (Зафиксировано CSS-ом над текстом)
-    # Мы убираем label (подпись), чтобы сэкономить место
-    audio_val = st.audio_input(label="Voice", label_visibility="collapsed")
+    # 1. МИКРОФОН (Обычный блок)
+    audio_val = st.audio_input("Golos / Voice 🎙️")
     
     # 2. ТЕКСТ (Всегда внизу)
     text_val = st.chat_input("Type here...")
@@ -179,7 +143,7 @@ else:
         except: pass
     elif text_val: user_in = text_val
 
-    # Обработка
+    # --- ОТВЕТ ИИ ---
     if user_in:
         st.session_state.messages.append({"role": "user", "content": user_in})
         with st.chat_message("user", avatar="👤"):
@@ -199,9 +163,11 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
+            # АУДИО ОТВЕТ
             try:
                 response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
-                st.audio(response.content, format="audio/mp3", key=f"aud_{len(st.session_state.messages)}")
+                # ВАЖНО: key=... гарантирует, что плеер появится и будет работать
+                st.audio(response.content, format="audio/mp3", key=f"audio_res_{len(st.session_state.messages)}")
             except: pass
 
         st.session_state.messages.append({"role": "assistant", "content": full_resp})
