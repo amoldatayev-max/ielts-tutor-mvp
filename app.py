@@ -6,343 +6,408 @@ import random
 import time
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
-# --- 1. НАСТРОЙКИ ---
+# --- 1. SYSTEM CONFIGURATION ---
 st.set_page_config(
-    page_title="ALAN | IELTS Simulator",
+    page_title="ZEST AI | IELTS Titanium",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS (УПРОЩЕННЫЙ И НАДЕЖНЫЙ) ---
+# --- 2. ELITE CSS STYLING ---
 st.markdown("""
 <style>
+    /* Global Reset */
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     
-    /* Красивая бумага для экзамена */
-    .exam-paper {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        color: #333;
-        margin-bottom: 15px;
+    /* Modern Card Design */
+    .stApp { background-color: #f8f9fa; }
+    .css-1y4p8pa { padding-top: 0rem; }
+    
+    .exam-card {
+        background: white;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        border: 1px solid #f0f0f0;
+        margin-bottom: 20px;
+        transition: transform 0.2s;
     }
-    /* Темная тема (автоматически) */
-    @media (prefers-color-scheme: dark) {
-        .exam-paper { background-color: #262730; color: white; border: 1px solid #444; }
+    .exam-card:hover { transform: translateY(-2px); }
+    
+    /* Typography */
+    h1, h2, h3 { font-family: 'Helvetica Neue', sans-serif; color: #2c3e50; }
+    .highlight { color: #3498db; font-weight: bold; }
+    
+    /* Split Screen Scrollable Area */
+    .scroll-container {
+        max-height: 400px;
+        overflow-y: auto;
+        padding-right: 10px;
+        border-right: 2px solid #eee;
     }
     
-    .stTabs [data-baseweb="tab-list"] { gap: 5px; }
-    .stTabs [data-baseweb="tab"] { font-size: 1rem; padding: 10px 15px; }
+    /* Badges */
+    .badge-correct { background-color: #d4edda; color: #155724; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
+    .badge-wrong { background-color: #f8d7da; color: #721c24; padding: 4px 8px; border-radius: 6px; font-weight: bold; }
+    
+    /* Dark Mode Support */
+    @media (prefers-color-scheme: dark) {
+        .stApp { background-color: #0e1117; }
+        .exam-card { background: #262730; border: 1px solid #444; }
+        h1, h2, h3 { color: #ecf0f1; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. ДАННЫЕ (DATABASE) ---
+# --- 3. DATA & CONTENT MANAGERS ---
 
-SPEAKING_DB = [
-    {
-        "topic": "Daily Routine",
-        "part1": ["Do you prefer morning or evening?", "What is your daily routine?", "Is breakfast important to you?"],
-        "card": "Describe a habit you want to change.\nYou should say:\n- What it is\n- How long you have had it\n- Why you want to change it\nAnd explain how you plan to change it.",
-        "part3": ["Is it easy for old people to change habits?", "How can parents teach children good habits?"]
-    }
-]
+class ContentManager:
+    """Manages all static and dynamic exam content."""
+    
+    @staticmethod
+    def get_speaking_topic():
+        return {
+            "topic": "Technology & AI",
+            "part1": ["Do you use AI tools often?", "Has technology changed how you study?", "Do you prefer online or offline classes?"],
+            "card": "Describe a piece of technology you want to buy.\nYou should say:\n- What it is\n- How much it costs\n- What features it has\nAnd explain why you want it.",
+            "part3": ["Will robots replace teachers?", "Is privacy dead in the digital age?"]
+        }
 
-# График для Writing
-df_task1 = pd.DataFrame({
-    'Year': ['2018', '2019', '2020', '2021', '2022'],
-    'Coffee': [15, 20, 45, 60, 80],
-    'Tea': [70, 65, 55, 40, 30]
-}).set_index('Year')
+    @staticmethod
+    def get_writing_task1():
+        # Dynamic Data Generation for uniqueness
+        df = pd.DataFrame({
+            'Year': ['2018', '2019', '2020', '2021', '2022'],
+            'Mobile': np.random.randint(20, 50, 5),
+            'Desktop': np.random.randint(40, 70, 5)
+        }).set_index('Year')
+        return {
+            "title": "Device Usage Trends",
+            "data": df,
+            "prompt": "The chart illustrates the usage of Mobile vs Desktop for internet access over 5 years."
+        }
 
-WRITING_DB = {
-    "task1": {
-        "title": "Beverage Trends",
-        "data": df_task1,
-        "prompt": "The chart shows Coffee vs Tea popularity. Summarise the trends."
-    },
-    "task2": "Some people think that AI will replace teachers. To what extent do you agree or disagree?"
-}
+    @staticmethod
+    def get_reading_test():
+        return {
+            "title": "The Future of Space Exploration",
+            "text": """
+            Space exploration has entered a new era, driven largely by private companies rather than government agencies. Companies like SpaceX and Blue Origin are reducing the cost of launching payloads into orbit through reusable rocket technology.
+            
+            Historically, space travel was the exclusive domain of superpowers. The Apollo missions demonstrated immense national capability but were incredibly expensive. In contrast, the 'New Space' industry focuses on commercial viability and sustainability.
+            
+            One of the primary goals of modern exploration is the colonization of Mars. Elon Musk has stated that humanity must become a multi-planetary species to ensure survival. However, critics argue that we should focus on repairing Earth's climate before attempting to terraform another planet.
+            """,
+            "questions": [
+                {"q": "Who is driving the new era of space exploration?", "a": "private companies", "options": ["Governments", "Private companies", "Universities"]},
+                {"q": "The main goal of New Space is national prestige. (True/False)", "a": "False", "options": ["True", "False", "Not Given"]},
+                {"q": "Elon Musk wants to colonize...", "a": "Mars", "options": []}
+            ]
+        }
 
-READING_DB = [
-    {
-        "title": "The Intelligence of Crows",
-        "text": """
-Crows are often considered to be among the world's most intelligent animals. Scientific research has shown that they are capable of using tools, recognizing human faces, and even solving complex puzzles that require multiple steps.
+    @staticmethod
+    def get_listening_test():
+        return {
+            "title": "Section 1: Event Registration",
+            "script": """
+            Good morning, Tech Conference Registration.
+            Hello, I'd like to register for the upcoming AI Summit.
+            Certainly. Can I have your full name?
+            Yes, it is John Anderson.
+            And what is your company name?
+            I work for Global Tech Solutions.
+            Okay. The fee is $150. Would you like to pay now?
+            Yes, please.
+            """,
+            "context": "Complete the form based on the call.",
+            "questions": [
+                {"label": "1. Attendee Name:", "a": "John Anderson"},
+                {"label": "2. Company: Global ______ Solutions", "a": "Tech"},
+                {"label": "3. Fee: $", "a": "150"}
+            ]
+        }
 
-In one famous experiment, a crow named Betty bent a straight piece of wire into a hook to retrieve a bucket of food from a vertical tube. This demonstrated a level of causal reasoning previously thought to be unique to humans and great apes.
+# --- 4. CORE LOGIC MANAGERS ---
 
-Furthermore, crows have a complex social structure. They have been observed holding "funerals" for deceased members of their flock, which scientists believe helps them learn about potential dangers in their environment. Their brain-to-body weight ratio is roughly equal to that of chimpanzees, and significantly higher than that of most other birds.
+class DBHandler:
+    """Handles Google Sheets connections safely."""
+    @staticmethod
+    @st.cache_resource
+    def connect():
+        try:
+            creds = dict(st.secrets["gcp_service_account"])
+            if "private_key" in creds: creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+            gc = gspread.service_account_from_dict(creds)
+            return gc.open("IELTS_Users_DB").sheet1
+        except: return None
 
-Despite their intelligence, crows are often viewed as pests by farmers because they can damage crops. However, their role in the ecosystem as scavengers is vital for preventing the spread of disease.
-        """,
-        "questions": [
-            {"q": "What did the crow named Betty do?", "a": "bent wire", "options": ["Used a stick", "Bent wire", "Broke the tube"]},
-            {"q": "Crows have a larger brain than chimpanzees. (True/False)", "a": "False", "options": ["True", "False", "Not Given"]},
-            {"q": "Farmers dislike crows because they...", "a": "damage crops", "options": []}
-        ]
-    }
-]
+    @staticmethod
+    def get_user(phone):
+        ws = DBHandler.connect()
+        if not ws: return None
+        try:
+            cell = ws.find(phone)
+            if cell:
+                row = ws.row_values(cell.row)
+                hist = json.loads(row[4]) if len(row) > 4 and row[4] else []
+                return {"row": cell.row, "name": row[1], "band": row[2], "target": row[3], "history": hist, "pwd": str(row[5])}
+        except: return None
 
-LISTENING_DB = [
-    {
-        "title": "Section 1: Car Rental",
-        "script": """
-        Good morning, Speedy Rentals.
-        Hi, I'd like to rent a compact car.
-        Okay. We have a Ford Fiesta. It costs $40 per day.
-        Does that include insurance?
-        Yes, basic insurance is included. Can I have your surname?
-        It is Miller. M-I-L-L-E-R.
-        """,
-        "context": "Complete the notes based on the audio.",
-        "questions": [
-            {"label": "1. Car Type:", "a": "compact"},
-            {"label": "2. Cost per day: $", "a": "40"},
-            {"label": "3. Surname:", "a": "Miller"}
-        ]
-    }
-]
+    @staticmethod
+    def register(phone, name, password):
+        ws = DBHandler.connect()
+        if not ws: return "DB_ERROR"
+        try:
+            if ws.find(phone): return "EXISTS"
+            ws.append_row([phone, name, "5.0", "7.0", "[]", password, "English"])
+            return DBHandler.get_user(phone)
+        except: return "ERROR"
 
-# --- 4. ФУНКЦИИ ---
+class AIHandler:
+    """Manages OpenAI interactions with fallbacks."""
+    
+    @staticmethod
+    @st.cache_data(show_spinner=False)
+    def generate_audio(text, voice="alloy"):
+        if "OPENAI_API_KEY" not in st.secrets: return None
+        try:
+            client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+            res = client.audio.speech.create(model="tts-1", voice=voice, input=text)
+            return res.content
+        except: return None
 
-# 1. ГЕНЕРАЦИЯ АУДИО (С ЗАЩИТОЙ ОТ ОШИБОК)
-@st.cache_data(show_spinner=False)
-def get_audio_safe(text):
-    """Пытается создать аудио. Если ошибка - возвращает None."""
-    try:
-        client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-        res = client.audio.speech.create(model="tts-1", voice="alloy", input=text)
-        return res.content
-    except:
-        return None # Если ошибка API, вернем пустоту, чтобы не крашить сайт
+    @staticmethod
+    def grade_text(task_type, content, context=""):
+        if "OPENAI_API_KEY" not in st.secrets: 
+            return "⚠️ AI Unavailable. Simulation Mode: Great effort! Estimated Band: 6.5. Focus on grammar."
+        try:
+            client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+            prompt = f"Act as IELTS Examiner. Grade {task_type}. Context: {context}. User Answer: {content}. Keep it brief."
+            res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user", "content":prompt}])
+            return res.choices[0].message.content
+        except: return "⚠️ Error connecting to AI. Please try again later."
 
-# 2. БД
-@st.cache_resource
-def get_db_connection():
-    try:
-        creds = dict(st.secrets["gcp_service_account"])
-        if "private_key" in creds: creds["private_key"] = creds["private_key"].replace("\\n", "\n")
-        gc = gspread.service_account_from_dict(creds)
-        return gc.open("IELTS_Users_DB").sheet1
-    except: return None
+    @staticmethod
+    def transcribe(audio_file):
+        if "OPENAI_API_KEY" not in st.secrets: return "Simulation text answer."
+        try:
+            client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+            return client.audio.transcriptions.create(model="whisper-1", file=audio_file).text
+        except: return None
 
-# 3. АВТОРИЗАЦИЯ
-def check_login(phone, password):
-    ws = get_db_connection()
-    if not ws: return None
-    try:
-        cell = ws.find(phone)
-        if cell:
-            row = ws.row_values(cell.row)
-            hist = json.loads(row[4]) if len(row) > 4 and row[4] else []
-            return {"row": cell.row, "name": row[1], "band": row[2], "target": row[3], "history": hist, "pwd": str(row[5])}
-    except: return None
-
-def register_new(phone, name, password):
-    ws = get_db_connection()
-    if not ws: return "DB_ERROR"
-    try:
-        if ws.find(phone): return "EXISTS"
-        ws.append_row([phone, name, "5.0", "7.0", "[]", password, "English"])
-        return check_login(phone, password)
-    except: return "ERROR"
-
-# --- 5. LOGIC START ---
-if "OPENAI_API_KEY" in st.secrets:
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-else:
-    st.error("⚠️ API Key Missing")
-    st.stop()
+# --- 5. INITIALIZATION ---
 
 if "user" not in st.session_state: st.session_state.user = None
-if "spk_state" not in st.session_state: st.session_state.spk_state = {"active": False, "part": 1, "idx": 0}
+if "spk" not in st.session_state: st.session_state.spk = {"active": False, "part": 1, "idx": 0}
 
-# ==================== ВХОД ====================
+# ==================== LOGIN SYSTEM ====================
 if not st.session_state.user:
-    c1, c2 = st.columns([1, 3])
-    with c1: st.write("🎓")
-    with c2: st.title("ALAN | IELTS")
-    
-    t1, t2 = st.tabs(["Войти", "Регистрация"])
-    with t1:
-        with st.form("log"):
-            uid = st.text_input("ID:")
-            upw = st.text_input("Password:", type="password")
-            if st.form_submit_button("Start"):
-                u = check_login(uid, upw)
-                if u:
-                    st.session_state.user = u
-                    st.session_state.messages = u["history"]
-                    st.rerun()
-                else: st.error("Ошибка входа")
-    with t2:
-        with st.form("reg"):
-            nid = st.text_input("New ID:")
-            nnm = st.text_input("Name:")
-            npw = st.text_input("Password:", type="password")
-            if st.form_submit_button("Создать"):
-                res = register_new(nid, nnm, npw)
-                if isinstance(res, dict): 
-                    st.session_state.user = res
-                    st.session_state.messages = []
-                    st.rerun()
-                else: st.error(f"Ошибка: {res}")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<h1 style='text-align: center;'>ZEST AI <span style='color:#00c853'>.</span></h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: grey;'>Premium IELTS Simulator</p>", unsafe_allow_html=True)
+        
+        tab_login, tab_reg = st.tabs(["Login", "Join Class"])
+        
+        with tab_login:
+            with st.form("login_form"):
+                uid = st.text_input("Student ID (Phone)")
+                upw = st.text_input("Password", type="password")
+                if st.form_submit_button("Enter Dashboard", use_container_width=True):
+                    user = DBHandler.get_user(uid)
+                    if user and user["pwd"] == upw:
+                        st.session_state.user = user
+                        st.session_state.messages = user["history"]
+                        st.rerun()
+                    else: st.error("Invalid Credentials")
+        
+        with tab_reg:
+            with st.form("reg_form"):
+                new_id = st.text_input("Phone Number")
+                new_name = st.text_input("Full Name")
+                new_pw = st.text_input("Password", type="password")
+                if st.form_submit_button("Create Account", use_container_width=True):
+                    res = DBHandler.register(new_id, new_name, new_pw)
+                    if isinstance(res, dict):
+                        st.session_state.user = res
+                        st.session_state.messages = []
+                        st.rerun()
+                    else: st.error(f"Registration Failed: {res}")
 
-# ==================== ПЛАТФОРМА ====================
+# ==================== MAIN DASHBOARD ====================
 else:
     u = st.session_state.user
     
-    # Шапка
-    c1, c2, c3 = st.columns([1, 2, 1])
-    c1.metric("Band", u['band'])
-    c2.write(f"**{u['name']}**")
-    if c3.button("Exit"): st.session_state.user = None; st.rerun()
-    st.divider()
-
+    # TOP BAR
+    c1, c2, c3 = st.columns([1, 4, 1])
+    with c1: st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=50)
+    with c2: 
+        st.write(f"**{u['name']}**")
+        st.progress(float(u['band'])/9.0) # Visual Band Progress
+    with c3: 
+        if st.button("Logout"): st.session_state.user = None; st.rerun()
+    
+    st.markdown("---")
+    
     tabs = st.tabs(["🎙️ SPEAKING", "📝 WRITING", "📖 READING", "🎧 LISTENING"])
 
-    # --- 1. SPEAKING ---
+    # --- MODULE 1: SPEAKING ---
     with tabs[0]:
-        state = st.session_state.spk_state
-        test = SPEAKING_DB[0]
+        state = st.session_state.spk
+        content = ContentManager.get_speaking_topic()
         
         if not state["active"]:
-            st.info("Part 1: Interview | Part 2: Cue Card | Part 3: Discussion")
-            if st.button("Start Speaking"):
+            st.info("Full IELTS Speaking Test Simulation")
+            col_a, col_b = st.columns(2)
+            col_a.metric("Est. Duration", "12 mins")
+            col_b.metric("Focus", content["topic"])
+            if st.button("Start Interview", type="primary"):
                 state["active"] = True
                 state["part"] = 1
                 state["idx"] = 0
                 st.session_state.messages = [] 
                 st.rerun()
         else:
-            st.progress(33 if state["part"]==1 else 66 if state["part"]==2 else 100)
+            # Phase Indicator
+            st.caption(f"Phase: Part {state['part']} / 3")
+            st.progress(33 * state["part"])
             
             if state["part"] == 1:
-                st.write("### Part 1")
-                q = test['part1'][state['idx']]
-                st.markdown(f"<div class='exam-paper'>🗣️ <b>Alan:</b> {q}</div>", unsafe_allow_html=True)
+                st.subheader("Part 1: Interview")
+                q = content['part1'][state['idx']]
                 
-                # Показываем прошлый ответ (чат)
-                if len(st.session_state.messages) > 0:
-                     with st.chat_message("user"): st.write(st.session_state.messages[-1]["content"])
+                with st.chat_message("assistant", avatar="👨‍💻"):
+                    st.write(q)
+                
+                # Show history (last 1 turn)
+                if st.session_state.messages:
+                    last_msg = st.session_state.messages[-1]
+                    with st.chat_message("user"): st.write(last_msg["content"])
 
-                aud = st.audio_input("Record Answer", key=f"p1_{state['idx']}")
-                if aud:
-                    txt = client.audio.transcriptions.create(model="whisper-1", file=aud).text
+                audio = st.audio_input("Answer", key=f"spk_1_{state['idx']}")
+                if audio:
+                    txt = AIHandler.transcribe(audio)
                     if txt:
                         st.session_state.messages.append({"role": "user", "content": txt})
-                        if state["idx"] < len(test['part1']) - 1:
+                        if state["idx"] < len(content['part1']) - 1:
                             state["idx"] += 1
-                            st.rerun()
                         else:
                             state["part"] = 2
-                            st.rerun()
+                        st.rerun()
 
             elif state["part"] == 2:
-                st.write("### Part 2")
-                st.info("Topic Card (1 min prep)")
-                st.markdown(f"<div class='exam-paper'>{test['card']}</div>", unsafe_allow_html=True)
-                if st.button("I'm ready (Start Speaking)"): state["part"] = 3; st.rerun()
+                st.subheader("Part 2: Cue Card")
+                with st.container(border=True):
+                    st.markdown(content['card'])
+                st.warning("⏱️ You have 1 minute to prepare notes.")
+                if st.button("Start Speaking (2 mins)"): state["part"] = 3; st.rerun()
 
             elif state["part"] == 3:
-                st.write("### Part 3")
-                st.write(f"**Q:** {test['part3'][0]}")
-                aud3 = st.audio_input("Final Answer", key="p3_fin")
-                if aud3:
-                    st.success("Analyzing...")
-                    res = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role":"user", "content":f"Grade my IELTS speaking. Be brief."}]
-                    )
-                    st.markdown(res.choices[0].message.content)
-                    if st.button("Finish"): state["active"]=False; st.rerun()
+                st.subheader("Part 3: Discussion")
+                st.write(content['part3'][0])
+                fin_aud = st.audio_input("Final Response", key="spk_3")
+                if fin_aud:
+                    txt = AIHandler.transcribe(fin_aud)
+                    with st.spinner("AI Examiner is grading..."):
+                        fb = AIHandler.grade_text("Speaking", txt)
+                        st.success("Test Complete!")
+                        st.markdown(f"<div class='exam-card'>{fb}</div>", unsafe_allow_html=True)
+                    if st.button("Finish"): state["active"] = False; st.rerun()
 
-    # --- 2. WRITING ---
+    # --- MODULE 2: WRITING ---
     with tabs[1]:
-        w_task = st.radio("Task:", ["Task 1", "Task 2"], horizontal=True)
-        if "Task 1" in w_task:
-            t1 = WRITING_DB["task1"]
-            st.subheader(t1['title'])
-            st.bar_chart(t1['data']) # График
-            st.caption(t1['prompt'])
+        w_mode = st.radio("Select Task", ["Task 1 (Chart)", "Task 2 (Essay)"], horizontal=True)
+        
+        if "Task 1" in w_mode:
+            task = ContentManager.get_writing_task1()
+            col_img, col_inp = st.columns([1, 1])
             
-            essay1 = st.text_area("Your Report:", height=150)
-            if st.button("Check Task 1"):
-                with st.spinner("Grading..."):
-                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user", "content":f"Grade Task 1: {essay1}"}])
-                    st.write(res.choices[0].message.content)
+            with col_img:
+                st.subheader(task['title'])
+                st.bar_chart(task['data']) # Dynamic Chart
+                st.caption(task['prompt'])
+            
+            with col_inp:
+                essay1 = st.text_area("Your Report", height=300, placeholder="Write at least 150 words...")
+                if st.button("Evaluate Task 1"):
+                    with st.spinner("Grading..."):
+                        fb = AIHandler.grade_text("Writing Task 1", essay1, task['prompt'])
+                        st.markdown(fb)
         else:
-            st.subheader("Task 2")
-            st.info(WRITING_DB["task2"])
-            essay2 = st.text_area("Your Essay:", height=250)
-            if st.button("Check Task 2"):
+            st.subheader("Task 2: Essay")
+            st.info("Some people believe that AI will replace teachers. Discuss.")
+            essay2 = st.text_area("Your Essay", height=400, placeholder="Write at least 250 words...")
+            if st.button("Evaluate Task 2"):
                 with st.spinner("Grading..."):
-                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user", "content":f"Grade Task 2: {essay2}"}])
-                    st.write(res.choices[0].message.content)
+                    fb = AIHandler.grade_text("Writing Task 2", essay2)
+                    st.markdown(fb)
 
-    # --- 3. READING (ИСПРАВЛЕНО: НАТИВНЫЙ СКРОЛЛ) ---
+    # --- MODULE 3: READING (CBT STYLE) ---
     with tabs[2]:
-        r_ex = READING_DB[0]
-        st.subheader(r_ex['title'])
+        test = ContentManager.get_reading_test()
+        st.subheader(test['title'])
         
-        # ВОТ ИСПРАВЛЕНИЕ: Используем st.container вместо HTML
-        # Это гарантирует, что текст не "вывалится" тегами на телефоне
-        with st.container(height=300): 
-            st.markdown(r_ex['text'])
+        c_text, c_questions = st.columns([1, 1])
         
-        st.divider()
-        st.write("### Questions")
+        with c_text:
+            # Native Streamlit Scroll Container (Mobile Friendly)
+            with st.container(height=500, border=True):
+                st.markdown(test['text'])
         
-        with st.form("read_form"):
-            r_ans = []
-            for i, q in enumerate(r_ex['questions']):
-                st.write(f"**{i+1}. {q['q']}**")
-                if q['options']:
-                    val = st.radio("Select:", q['options'], key=f"rq{i}", label_visibility="collapsed")
-                else:
-                    val = st.text_input("Answer:", key=f"rq{i}", label_visibility="collapsed")
-                r_ans.append(val)
-            
-            if st.form_submit_button("Submit"):
-                score = 0
-                for i, a in enumerate(r_ans):
-                    if str(a).lower() == str(r_ex['questions'][i]['a']).lower():
-                        st.success(f"Q{i+1}: Correct")
-                        score += 1
+        with c_questions:
+            st.write("### Questions")
+            with st.form("reading_form"):
+                answers = []
+                for i, q in enumerate(test['questions']):
+                    st.markdown(f"**{i+1}. {q['q']}**")
+                    if q['options']:
+                        val = st.radio("Select:", q['options'], key=f"rq{i}", label_visibility="collapsed")
                     else:
-                        st.error(f"Q{i+1}: Wrong (Ans: {r_ex['questions'][i]['a']})")
+                        val = st.text_input("Answer:", key=f"rq{i}", label_visibility="collapsed")
+                    answers.append(val)
+                
+                if st.form_submit_button("Submit Answers"):
+                    score = 0
+                    for i, a in enumerate(answers):
+                        correct = test['questions'][i]['a']
+                        if str(a).strip().lower() == str(correct).strip().lower():
+                            st.markdown(f"{i+1}. <span class='badge-correct'>Correct</span>", unsafe_allow_html=True)
+                            score += 1
+                        else:
+                            st.markdown(f"{i+1}. <span class='badge-wrong'>Wrong</span> (Ans: {correct})", unsafe_allow_html=True)
+                    st.metric("Total Score", f"{score}/{len(answers)}")
 
-    # --- 4. LISTENING (ИСПРАВЛЕНО: ЗАЩИТА ОТ ОШИБКИ) ---
+    # --- MODULE 4: LISTENING (SAFE MODE) ---
     with tabs[3]:
-        l_ex = LISTENING_DB[0]
-        st.subheader(l_ex['title'])
-        st.write(l_ex['context'])
+        test = ContentManager.get_listening_test()
+        st.subheader(test['title'])
+        st.write(f"Context: {test['context']}")
         
-        # ВОТ ИСПРАВЛЕНИЕ: Пробуем сгенерировать, если нет - даем запасной файл
-        aud_bytes = get_audio_safe(l_ex['script'])
-        
-        if aud_bytes:
-            st.audio(aud_bytes, format="audio/mp3")
+        # Audio Player with Fallback
+        audio_bytes = AIHandler.generate_audio(test['script'])
+        if audio_bytes:
+            st.audio(audio_bytes, format="audio/mp3")
         else:
-            # Если OpenAI сломался, показываем файл-заглушку, чтобы не было надписи "Error"
-            st.warning("Voice generator busy. Using backup audio.")
-            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3") 
+            st.warning("⚠️ Simulation Audio Used (Network Error)")
+            st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
 
-        with st.form("listen_form"):
-            l_inputs = []
-            for i, q in enumerate(l_ex['questions']):
+        with st.form("listening_form"):
+            l_answers = []
+            for i, q in enumerate(test['questions']):
                 val = st.text_input(q['label'])
-                l_inputs.append(val)
+                l_answers.append(val)
             
-            if st.form_submit_button("Check"):
+            if st.form_submit_button("Check Listening"):
                 score = 0
-                for i, a in enumerate(l_inputs):
-                    if l_ex['questions'][i]['a'].lower() in a.lower():
-                        st.success(f"Correct")
+                for i, a in enumerate(l_answers):
+                    correct = test['questions'][i]['a']
+                    if correct.lower() in a.lower():
+                        st.markdown(f"{i+1}. <span class='badge-correct'>Correct</span>", unsafe_allow_html=True)
                         score += 1
                     else:
-                        st.error(f"Wrong (Ans: {l_ex['questions'][i]['a']})")
+                        st.markdown(f"{i+1}. <span class='badge-wrong'>Wrong</span>", unsafe_allow_html=True)
+                st.metric("Score", f"{score}/{len(l_answers)}")
+            
