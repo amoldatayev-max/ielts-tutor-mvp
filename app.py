@@ -4,56 +4,21 @@ import gspread
 import json
 import random
 
-# --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
+# --- 1. НАСТРОЙКИ ---
 st.set_page_config(page_title="ALAN | ZEST AI", page_icon="⚡️", layout="centered")
 
-# --- 2. CSS: СТЕЛС-РЕЖИМ + ФИКС ИНТЕРФЕЙСА ---
+# --- 2. ПРОСТОЙ СТИЛЬ (БЕЗ РИСКА) ---
+# Убираем только логотип Streamlit, не трогаем кнопки
 stealth_css = """
 <style>
-    /* 1. СКРЫВАЕМ БРЕНДИНГ STREAMLIT */
-    #MainMenu {visibility: hidden;} /* Меню справа сверху */
-    footer {visibility: hidden;}    /* Надпись "Made with Streamlit" */
-    header {visibility: hidden;}    /* Красная полоска сверху */
-    .stDeployButton {display:none;} /* Кнопка Deploy */
-    
-    /* 2. МИКРОФОН (ПЛАВАЮЩИЙ БЛОК) */
-    /* Мы поднимаем его на 160px вверх, чтобы он точно не налез на текст */
-    [data-testid="stAudioInput"] {
-        position: fixed;
-        bottom: 160px; 
-        z-index: 999;
-        left: 0; 
-        right: 0;
-        margin: 0 auto;
-        width: 100%;
-        max-width: 44rem; /* Ограничение ширины */
-        
-        /* Дизайн плашки микрофона */
-        background-color: rgba(255, 255, 255, 0.95);
-        border-radius: 15px;
-        padding: 10px;
-        box-shadow: 0px -5px 20px rgba(0,0,0,0.1);
-        border: 1px solid #eee;
-    }
-    
-    /* Темная тема для микрофона */
-    @media (prefers-color-scheme: dark) {
-        [data-testid="stAudioInput"] {
-            background-color: rgba(38, 39, 48, 0.95);
-            border: 1px solid #333;
-        }
-    }
-    
-    /* 3. ОТСТУП ДЛЯ ЧАТА */
-    /* Добавляем пустое место внизу, чтобы сообщения не прятались за микрофоном */
-    .stMainBlockContainer {
-        padding-bottom: 280px; 
-    }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 </style>
 """
 st.markdown(stealth_css, unsafe_allow_html=True)
 
-# --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ (КЭШ) ---
+# --- 3. БД ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -67,7 +32,7 @@ def get_db_connection():
 
 worksheet = get_db_connection()
 
-# --- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+# --- 4. ФУНКЦИИ ---
 def load_user(phone):
     if not worksheet: return None
     try:
@@ -97,16 +62,13 @@ def save_history(row_id, messages):
 
 def get_wod():
     words = [
-        ("Ubiquitous", "Вездесущий (Everywhere)"),
-        ("Ephemeral", "Мимолетный (Short-lived)"),
-        ("Eloquent", "Красноречивый (Persuasive)"),
-        ("Resilient", "Устойчивый (Strong)"),
-        ("Meticulous", "Тщательный (Careful)"),
-        ("Inevitable", "Неизбежный (Unavoidable)")
+        ("Ubiquitous", "Вездесущий"), ("Ephemeral", "Мимолетный"),
+        ("Eloquent", "Красноречивый"), ("Resilient", "Устойчивый"),
+        ("Meticulous", "Тщательный"), ("Inevitable", "Неизбежный")
     ]
     return random.choice(words)
 
-# --- 5. OPENAI SETUP ---
+# --- 5. OPENAI ---
 if "OPENAI_API_KEY" not in st.secrets: st.stop()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -115,11 +77,10 @@ if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
 if "wod" not in st.session_state: st.session_state.wod = get_wod()
 
-# ==================== ЭКРАН 1: ВХОД / РЕГИСТРАЦИЯ ====================
+# ==================== ВХОД ====================
 if not st.session_state.user:
     st.title("⚡️ ALAN | ZEST AI")
     tab1, tab2 = st.tabs(["Log In", "Sign Up"])
-    
     with tab1:
         with st.form("login"):
             ph = st.text_input("ID (Phone):")
@@ -130,68 +91,94 @@ if not st.session_state.user:
                     st.session_state.user = ud
                     st.session_state.messages = ud["history"]
                     st.rerun()
-                else: st.error("Incorrect Login")
-
+                else: st.error("Error")
     with tab2:
         with st.form("reg"):
             n_ph = st.text_input("ID (Phone):")
             n_pw = st.text_input("Password:", type="password")
             n_nm = st.text_input("Name:")
-            n_la = st.selectbox("Native Language:", ["Kazakh", "Russian", "English", "Chinese", "Hindi", "Spanish"])
-            n_lv = st.select_slider("Level:", ["Beginner", "Intermediate", "Advanced"])
-            n_tg = st.selectbox("Target Band:", ["6.0", "6.5", "7.0+"])
-            if st.form_submit_button("Create Profile"):
+            n_la = st.selectbox("Lang:", ["Kazakh", "Russian", "English", "Chinese"])
+            n_lv = st.select_slider("Lvl:", ["Beginner", "Intermediate", "Advanced"])
+            n_tg = st.selectbox("Target:", ["6.0", "6.5", "7.0+"])
+            if st.form_submit_button("Create"):
                 r = register_user(n_ph, n_nm, n_lv, n_tg, n_pw, n_la)
                 if r: 
                     st.session_state.user = r
                     st.session_state.messages = []
                     st.rerun()
 
-# ==================== ЭКРАН 2: ЧАТ С АЛАНОМ ====================
+# ==================== ЧАТ ====================
 else:
     user = st.session_state.user
     
-    # --- БОКОВАЯ ПАНЕЛЬ ---
     with st.sidebar:
-        st.info(f"💡 **Word of the Day:**\n\n### {st.session_state.wod[0]}\n_{st.session_state.wod[1]}_")
-        st.divider()
-        st.caption(f"👤 **{user['name']}**")
-        
-        # Кнопки управления
-        if st.button("🧹 New Topic (Clear)"):
+        st.info(f"💡 Word: **{st.session_state.wod[0]}**")
+        if st.button("🧹 Clear Chat"):
             st.session_state.messages = []
             st.rerun()
-            
         if st.button("🚪 Logout"):
             st.session_state.user = None
             st.rerun()
 
     st.title("ALAN ⚡️")
 
-    # --- МОЗГ АЛАНА (TURBO PROMPT) ---
+    # Инициализация
     if not st.session_state.messages:
-        sys = f"""
-        Role: IELTS Coach ALAN.
-        Student: {user['name']}. Native Lang: {user['native_lang']}.
-        
-        RULES:
-        1. BE CONCISE. Max 2-3 sentences.
-        2. IF ERROR: Correct it immediately.
-        3. IF NO ERROR: Ask next question.
-        4. Explain grammar in {user['native_lang']} if needed.
-        5. NEVER give long lectures.
-        """
+        sys = f"Role: IELTS Coach ALAN. User Lang: {user['native_lang']}. Rules: Brief (2 sentences). Correct errors. Ask questions."
         st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! I'm ALAN. Ready? Press 🎙️."})
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready? (Press 🎙️)"})
 
-    # --- ВЫВОД ИСТОРИИ ЧАТА ---
+    # История
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             av = "👨‍💻" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # --- ИНТЕРФЕЙС ВВОДА ---
+    # --- ВВОД (СТАНДАРТНЫЙ) ---
+    st.write("---") # Разделитель
     
-    # 1. АУДИО (Висит в воздухе благодаря CSS)
-    audio_val = st.audio_input
+    # 1. Микрофон (Обычный, без магии CSS)
+    audio_val = st.audio_input("Golos / Voice 🎙️")
+    
+    # 2. Текст (Всегда внизу)
+    text_val = st.chat_input("Type here...")
+
+    user_in = None
+    if audio_val:
+        try: user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
+        except: st.error("Mic error")
+    elif text_val:
+        user_in = text_val
+
+    # --- ОТВЕТ ---
+    if user_in:
+        st.session_state.messages.append({"role": "user", "content": user_in})
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(user_in)
+
+        with st.chat_message("assistant", avatar="👨‍💻"):
+            full_resp = ""
+            ph = st.empty()
+            
+            # Текст
+            stream = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
+                stream=True
+            )
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    full_resp += chunk.choices[0].delta.content
+                    ph.markdown(full_resp + " ▌")
+            ph.markdown(full_resp)
+            
+            # Аудио (Добавлен key!)
+            try:
+                response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
+                # Уникальный ключ заставляет плеер перерисовываться заново
+                st.audio(response.content, format="audio/mp3", key=f"audio_msg_{len(st.session_state.messages)}")
+            except: pass
+
+        st.session_state.messages.append({"role": "assistant", "content": full_resp})
+        save_history(user["row_id"], st.session_state.messages)
