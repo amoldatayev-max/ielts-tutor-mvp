@@ -5,7 +5,7 @@ import json
 import random
 
 # --- 1. НАСТРОЙКИ ---
-st.set_page_config(page_title="ZEST AI | IELTS Coach", page_icon="⚡️", layout="centered")
+st.set_page_config(page_title="ZEST AI | ALAN Coach", page_icon="⚡️", layout="centered")
 
 # --- 2. СКРЫВАЕМ ЛИШНЕЕ ---
 hide_st_style = """
@@ -82,7 +82,7 @@ if "wod" not in st.session_state: st.session_state.wod = get_word_of_the_day()
 
 # ==================== ВХОД ====================
 if not st.session_state.user:
-    st.title("⚡️ ZEST AI | IELTS")
+    st.title("⚡️ ZEST AI | ALAN")
     tab1, tab2 = st.tabs(["Login", "Register"])
     with tab1:
         with st.form("login"):
@@ -100,7 +100,7 @@ if not st.session_state.user:
             n_ph = st.text_input("ID:")
             n_pw = st.text_input("Pass:", type="password")
             n_nm = st.text_input("Name:")
-            n_la = st.selectbox("Lang:", ["Kazakh", "Russian", "English", "Chinese", "Hindi"])
+            n_la = st.selectbox("Lang:", ["Kazakh", "Russian", "English", "Chinese", "Hindi", "Spanish"])
             n_lv = st.select_slider("Lvl:", ["Beginner", "Intermediate", "Advanced"])
             n_tg = st.selectbox("Band:", ["6.0", "6.5", "7.0+"])
             if st.form_submit_button("Create"):
@@ -134,17 +134,21 @@ else:
             st.session_state.user = None
             st.rerun()
 
-    st.title("ZEST AI ⚡️")
+    st.title("ZEST AI | ALAN ⚡️")
 
+    # --- СИСТЕМНЫЙ ПРОМПТ (МОЗГ АЛАНА) ---
     if not st.session_state.messages:
-        sys = f"Role: IELTS Coach Arman. Student Lang: {user['native_lang']}. Style: Socratic, Brief (2-3 sentences). Explain errors in Native Lang, practice in English. Strict Focus on IELTS."
+        sys = f"Role: IELTS Coach ALAN. Student Lang: {user['native_lang']}. Style: Socratic, Brief (2-3 sentences). Explain errors in Native Lang, practice in English. Strict Focus on IELTS."
         st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready to practice? (Press 🎙️)"})
+        
+        # Приветствие
+        st.session_state.messages.append({"role": "assistant", "content": f"Hello {user['name']}! I am ALAN. Ready to practice? (Press 🎙️)"})
 
     # Вывод истории
     for i, msg in enumerate(st.session_state.messages):
         if msg["role"] != "system":
-            av = "👨‍🏫" if msg["role"] == "assistant" else "👤"
+            # Меняем иконку (можно поставить робота или учителя)
+            av = "👨‍💻" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
@@ -154,7 +158,7 @@ else:
 
     user_in = None
     if audio_val:
-        with st.spinner("Transcribing..."):
+        with st.spinner("Alan is listening..."):
             try:
                 user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
             except: st.error("Mic error")
@@ -168,8 +172,8 @@ else:
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_in)
 
-        # 2. Генерируем ответ Армана
-        with st.chat_message("assistant", avatar="👨‍🏫"):
+        # 2. Генерируем ответ Алана
+        with st.chat_message("assistant", avatar="👨‍💻"):
             full_resp = ""
             ph = st.empty()
             stream = client.chat.completions.create(
@@ -183,13 +187,12 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
-            # 3. Генерируем ЗВУК (БЕЗ speed и БЕЗ rerun)
+            # 3. Генерируем ЗВУК (Голос Onyx идеально подходит для имени Алан)
             try:
-                # Генерируем стандартный голос (onyx)
                 response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
                 
-                # Явно пишем заголовок, чтобы не перепутать плееры
-                st.caption("🔊 ПРОСЛУШАТЬ ОТВЕТ АРМАНА:")
+                # Подпись плеера
+                st.caption("🔊 ALAN'S VOICE:")
                 st.audio(response.content, format="audio/mp3")
                 
             except Exception as e:
