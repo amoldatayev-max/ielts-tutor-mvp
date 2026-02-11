@@ -4,31 +4,35 @@ import gspread
 import json
 import random
 
-# --- 1. НАСТРОЙКИ (ТУРБО) ---
+# --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
 st.set_page_config(page_title="ALAN | ZEST AI", page_icon="⚡️", layout="centered")
 
-# --- 2. CSS: СТЕЛС-РЕЖИМ И ИНТЕРФЕЙС ---
+# --- 2. CSS: СТЕЛС-РЕЖИМ + ФИКС ИНТЕРФЕЙСА ---
 stealth_css = """
 <style>
-    /* 1. УБИРАЕМ ВСЕ НАДПИСИ STREAMLIT */
+    /* 1. СКРЫВАЕМ БРЕНДИНГ STREAMLIT */
     #MainMenu {visibility: hidden;} /* Меню справа сверху */
-    footer {visibility: hidden;}    /* Надпись внизу */
+    footer {visibility: hidden;}    /* Надпись "Made with Streamlit" */
     header {visibility: hidden;}    /* Красная полоска сверху */
     .stDeployButton {display:none;} /* Кнопка Deploy */
     
-    /* 2. МИКРОФОН (ЗАКРЕПЛЕН ВНИЗУ) */
+    /* 2. МИКРОФОН (ПЛАВАЮЩИЙ БЛОК) */
+    /* Мы поднимаем его на 160px вверх, чтобы он точно не налез на текст */
     [data-testid="stAudioInput"] {
         position: fixed;
-        bottom: 90px;
+        bottom: 160px; 
         z-index: 999;
-        left: 0; right: 0;
+        left: 0; 
+        right: 0;
         margin: 0 auto;
         width: 100%;
-        max-width: 44rem;
+        max-width: 44rem; /* Ограничение ширины */
+        
+        /* Дизайн плашки микрофона */
         background-color: rgba(255, 255, 255, 0.95);
         border-radius: 15px;
-        padding: 8px;
-        box-shadow: 0px -4px 10px rgba(0,0,0,0.05);
+        padding: 10px;
+        box-shadow: 0px -5px 20px rgba(0,0,0,0.1);
         border: 1px solid #eee;
     }
     
@@ -40,13 +44,16 @@ stealth_css = """
         }
     }
     
-    /* Отступ чтобы чат не проваливался под кнопки */
-    .stMainBlockContainer { padding-bottom: 200px; }
+    /* 3. ОТСТУП ДЛЯ ЧАТА */
+    /* Добавляем пустое место внизу, чтобы сообщения не прятались за микрофоном */
+    .stMainBlockContainer {
+        padding-bottom: 280px; 
+    }
 </style>
 """
 st.markdown(stealth_css, unsafe_allow_html=True)
 
-# --- 3. БД (БЫСТРОЕ ПОДКЛЮЧЕНИЕ) ---
+# --- 3. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ (КЭШ) ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -60,7 +67,7 @@ def get_db_connection():
 
 worksheet = get_db_connection()
 
-# --- 4. ФУНКЦИИ ---
+# --- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def load_user(phone):
     if not worksheet: return None
     try:
@@ -99,19 +106,20 @@ def get_wod():
     ]
     return random.choice(words)
 
-# --- 5. OPENAI ---
+# --- 5. OPENAI SETUP ---
 if "OPENAI_API_KEY" not in st.secrets: st.stop()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 6. ЛОГИКА ---
+# --- 6. ИНИЦИАЛИЗАЦИЯ ---
 if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
 if "wod" not in st.session_state: st.session_state.wod = get_wod()
 
-# ==================== ВХОД ====================
+# ==================== ЭКРАН 1: ВХОД / РЕГИСТРАЦИЯ ====================
 if not st.session_state.user:
     st.title("⚡️ ALAN | ZEST AI")
     tab1, tab2 = st.tabs(["Log In", "Sign Up"])
+    
     with tab1:
         with st.form("login"):
             ph = st.text_input("ID (Phone):")
@@ -122,13 +130,14 @@ if not st.session_state.user:
                     st.session_state.user = ud
                     st.session_state.messages = ud["history"]
                     st.rerun()
-                else: st.error("Error")
+                else: st.error("Incorrect Login")
+
     with tab2:
         with st.form("reg"):
             n_ph = st.text_input("ID (Phone):")
             n_pw = st.text_input("Password:", type="password")
             n_nm = st.text_input("Name:")
-            n_la = st.selectbox("Language:", ["Kazakh", "Russian", "English", "Chinese", "Hindi", "Spanish"])
+            n_la = st.selectbox("Native Language:", ["Kazakh", "Russian", "English", "Chinese", "Hindi", "Spanish"])
             n_lv = st.select_slider("Level:", ["Beginner", "Intermediate", "Advanced"])
             n_tg = st.selectbox("Target Band:", ["6.0", "6.5", "7.0+"])
             if st.form_submit_button("Create Profile"):
@@ -138,86 +147,51 @@ if not st.session_state.user:
                     st.session_state.messages = []
                     st.rerun()
 
-# ==================== ЧАТ ====================
+# ==================== ЭКРАН 2: ЧАТ С АЛАНОМ ====================
 else:
     user = st.session_state.user
     
+    # --- БОКОВАЯ ПАНЕЛЬ ---
     with st.sidebar:
         st.info(f"💡 **Word of the Day:**\n\n### {st.session_state.wod[0]}\n_{st.session_state.wod[1]}_")
         st.divider()
-        st.caption(f"👤 {user['name']}")
+        st.caption(f"👤 **{user['name']}**")
         
+        # Кнопки управления
         if st.button("🧹 New Topic (Clear)"):
             st.session_state.messages = []
             st.rerun()
+            
         if st.button("🚪 Logout"):
             st.session_state.user = None
             st.rerun()
 
     st.title("ALAN ⚡️")
 
-    # --- СИСТЕМНЫЙ МОЗГ (TURBO MODE) ---
+    # --- МОЗГ АЛАНА (TURBO PROMPT) ---
     if not st.session_state.messages:
         sys = f"""
         Role: IELTS Coach ALAN.
-        User Lang: {user['native_lang']}.
+        Student: {user['name']}. Native Lang: {user['native_lang']}.
         
-        RULES FOR SPEED:
-        1. MAX 2 SENTENCES per reply. Be extremely concise.
+        RULES:
+        1. BE CONCISE. Max 2-3 sentences.
         2. IF ERROR: Correct it immediately.
         3. IF NO ERROR: Ask next question.
-        4. Explain grammar in {user['native_lang']}. Practice in English.
+        4. Explain grammar in {user['native_lang']} if needed.
+        5. NEVER give long lectures.
         """
         st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready? Press 🎙️."})
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! I'm ALAN. Ready? Press 🎙️."})
 
-    # --- ИСТОРИЯ ---
+    # --- ВЫВОД ИСТОРИИ ЧАТА ---
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             av = "👨‍💻" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # --- ВВОД ---
-    audio_val = st.audio_input("Speak 🎙️")
-    text_val = st.chat_input("Type...")
-
-    user_in = None
-    if audio_val:
-        # Убрал spinner с текстом, чтобы не мелькало
-        try: user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
-        except: st.error("Mic error")
-    elif text_val:
-        user_in = text_val
-
-    # --- ОТВЕТ ---
-    if user_in:
-        st.session_state.messages.append({"role": "user", "content": user_in})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(user_in)
-
-        with st.chat_message("assistant", avatar="👨‍💻"):
-            full_resp = ""
-            ph = st.empty()
-            
-            # ИСПОЛЬЗУЕМ GPT-4o-MINI ДЛЯ СКОРОСТИ
-            stream = client.chat.completions.create(
-                model="gpt-4o-mini", # <-- TURBO SPEED
-                messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                stream=True
-            )
-            for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    full_resp += chunk.choices[0].delta.content
-                    ph.markdown(full_resp + " ▌")
-            ph.markdown(full_resp)
-            
-            # ЗВУК
-            try:
-                # Опционально: alloy быстрее грузится чем onyx, но onyx солиднее. Оставим onyx.
-                response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
-                st.audio(response.content, format="audio/mp3")
-            except: pass
-
-        st.session_state.messages.append({"role": "assistant", "content": full_resp})
-        save_history(user["row_id"], st.session_state.messages)
+    # --- ИНТЕРФЕЙС ВВОДА ---
+    
+    # 1. АУДИО (Висит в воздухе благодаря CSS)
+    audio_val = st.audio_input
