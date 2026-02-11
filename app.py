@@ -2,14 +2,12 @@ import streamlit as st
 from openai import OpenAI
 import gspread
 import json
+import random
 
-# --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
+# --- 1. НАСТРОЙКИ ---
 st.set_page_config(page_title="ZEST AI | IELTS Coach", page_icon="⚡️", layout="centered")
 
-# --- 2. КОНТАКТЫ АДМИНА ---
-ADMIN_CONTACT = "https://t.me/aligassan_m" 
-
-# --- 3. ПОДКЛЮЧЕНИЕ К БД (КЭШИРОВАНИЕ) ---
+# --- 2. БАЗА ДАННЫХ ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -19,30 +17,24 @@ def get_db_connection():
         gc = gspread.service_account_from_dict(credentials_dict)
         sh = gc.open("IELTS_Users_DB")
         return sh.sheet1
-    except Exception as e: return None
+    except: return None
 
 worksheet = get_db_connection()
 
-# --- 4. ФУНКЦИИ ---
+# --- 3. ФУНКЦИИ ---
 def load_user(phone):
     if not worksheet: return None
     try:
         cell = worksheet.find(phone)
         if cell:
             row = worksheet.row_values(cell.row)
-            # Структура: Phone[0], Name[1], Level[2], Target[3], History[4], Password[5], NativeLang[6]
-            history_data = row[4] if len(row) > 4 else "[]"
-            password_data = row[5] if len(row) > 5 else "" 
-            native_lang = row[6] if len(row) > 6 else "English" 
-            try: history = json.loads(history_data)
-            except: history = []
-            return {
-                "row_id": cell.row, "name": row[1], "level": row[2], 
-                "target": row[3], "history": history, "password": str(password_data),
-                "native_lang": native_lang
-            }
+            hist = row[4] if len(row) > 4 else "[]"
+            pwd = row[5] if len(row) > 5 else "" 
+            lang = row[6] if len(row) > 6 else "English" 
+            try: h = json.loads(hist)
+            except: h = []
+            return {"row_id": cell.row, "name": row[1], "level": row[2], "target": row[3], "history": h, "password": str(pwd), "native_lang": lang}
     except: return None
-    return None
 
 def register_user(phone, name, level, target, password, native_lang):
     if not worksheet: return None
@@ -54,153 +46,116 @@ def register_user(phone, name, level, target, password, native_lang):
 
 def save_history(row_id, messages):
     if not worksheet: return
-    try:
-        history_str = json.dumps(messages, ensure_ascii=False)
-        worksheet.update_cell(row_id, 5, history_str)
+    try: worksheet.update_cell(row_id, 5, json.dumps(messages, ensure_ascii=False))
     except: pass
 
-def get_system_prompt(user):
-    return f"""
-    # SYSTEM INSTRUCTION
-    Role: You are Arman (ZEST AI), a strict but supportive IELTS Coach.
-    Student: {user['name']} | Native Language: {user['native_lang']}
-    
-    # CRITICAL RULES (DO NOT BREAK):
-    1. **BRIVITY:** Your answers must be SHORT (max 2-4 sentences). Do not write lectures.
-    2. **SOCRATIC METHOD:** Never give the full answer. Ask a guiding question to make the student think.
-    3. **STRICT FOCUS:** If the user asks about life, coding, or math -> IGNORE it. Say: "Let's focus on IELTS."
-    4. **STRUCTURE:** Every response must follow this formula:
-       - [Brief Feedback on mistake]
-       - [Correction]
-       - [Next Practice Question]
+def get_word_of_the_day():
+    words = [
+        ("Ubiquitous", "Вездесущий (Everywhere)"),
+        ("Ephemeral", "Мимолетный (Short-lived)"),
+        ("Eloquent", "Красноречивый (Persuasive)"),
+        ("Resilient", "Устойчивый (Strong)"),
+        ("Meticulous", "Тщательный (Careful)"),
+        ("Inevitable", "Неизбежный (Unavoidable)"),
+        ("Alleviate", "Облегчить (Make easier)")
+    ]
+    return random.choice(words)
 
-    # LANGUAGE:
-    - Explanation of errors: In {user['native_lang']} (if Beginner/Intermediate).
-    - Practice Questions: ALWAYS in English.
-    
-    # VOICE MODE:
-    - Keep it conversational.
-    """
-
-# --- 5. OPENAI ---
-if "OPENAI_API_KEY" not in st.secrets:
-    st.error("API Key missing.")
-    st.stop()
+# --- 4. OPENAI ---
+if "OPENAI_API_KEY" not in st.secrets: st.stop()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 6. ИНИЦИАЛИЗАЦИЯ ---
+# --- 5. ЛОГИКА ---
 if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
+if "wod" not in st.session_state: st.session_state.wod = get_word_of_the_day() # Word of Day init
 
-# ==========================================
-# ЭКРАН 1: ВХОД
-# ==========================================
+# ==================== ВХОД ====================
 if not st.session_state.user:
-    st.title("⚡️ ZEST AI | IELTS Coach")
+    st.title("⚡️ ZEST AI | IELTS")
     tab1, tab2 = st.tabs(["Login", "Register"])
-    
     with tab1:
         with st.form("login"):
-            ph = st.text_input("ID (Phone):")
-            pw = st.text_input("Password:", type="password")
-            if st.form_submit_button("Start"):
+            ph = st.text_input("ID:")
+            pw = st.text_input("Pass:", type="password")
+            if st.form_submit_button("Go"):
                 ud = load_user(ph)
                 if ud and str(ud["password"]).strip() == str(pw).strip():
                     st.session_state.user = ud
                     st.session_state.messages = ud["history"]
                     st.rerun()
                 else: st.error("Error")
-
     with tab2:
         with st.form("reg"):
-            n_ph = st.text_input("ID (Phone):")
-            n_pw = st.text_input("Password:", type="password")
+            n_ph = st.text_input("ID:")
+            n_pw = st.text_input("Pass:", type="password")
             n_nm = st.text_input("Name:")
-            n_lang = st.selectbox("Native Language:", ["Kazakh", "Russian", "English", "Chinese"])
-            n_lv = st.select_slider("Level:", ["Beginner", "Intermediate", "Advanced"])
-            n_tg = st.selectbox("Target Band:", ["6.0", "6.5", "7.0+"])
-            if st.form_submit_button("Create Profile"):
-                res = register_user(n_ph, n_nm, n_lv, n_tg, n_pw, n_lang)
-                if res: 
-                    st.session_state.user = res
+            n_la = st.selectbox("Lang:", ["Kazakh", "Russian", "English", "Chinese", "Hindi"])
+            n_lv = st.select_slider("Lvl:", ["Beginner", "Intermediate", "Advanced"])
+            n_tg = st.selectbox("Band:", ["6.0", "6.5", "7.0+"])
+            if st.form_submit_button("Create"):
+                r = register_user(n_ph, n_nm, n_lv, n_tg, n_pw, n_la)
+                if r: 
+                    st.session_state.user = r
                     st.session_state.messages = []
                     st.rerun()
 
-# ==========================================
-# ЭКРАН 2: УРОК
-# ==========================================
+# ==================== ЧАТ ====================
 else:
     user = st.session_state.user
     
     with st.sidebar:
-        st.header("📊 Progress")
-        
-        # --- ШКАЛА ПРОГРЕССА (ГЕЙМИФИКАЦИЯ) ---
-        # Считаем количество сообщений от ученика
-        user_msg_count = len([m for m in st.session_state.messages if m["role"] == "user"])
-        # Цель - 50 сообщений для перехода на след. уровень (условно)
-        progress_val = min(user_msg_count / 50, 1.0) 
-        st.progress(progress_val)
-        st.caption(f"XP: {user_msg_count} / 50 actions")
+        # --- ФИШКА 1: СЛОВО ДНЯ ---
+        st.info(f"💡 **Word of the Day:**\n\n**{st.session_state.wod[0]}**\n_{st.session_state.wod[1]}_")
         
         st.divider()
-        st.write(f"👤 **{user['name']}**")
-        topic = st.selectbox("Topic:", ["General", "Work", "Studies", "Hometown", "Travel"])
+        st.caption(f"User: {user['name']}")
         
-        # Смена темы
-        if "current_topic" not in st.session_state: st.session_state.current_topic = "General"
-        if topic != st.session_state.current_topic:
-            st.session_state.current_topic = topic
-            st.session_state.messages.append({"role": "system", "content": f"User changed topic to {topic}. Ask a short question."})
-            st.rerun()
-
+        # --- ФИШКА 2: СКАЧАТЬ ЧАТ ---
+        chat_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages if m['role'] != 'system'])
+        st.download_button("📥 Download Chat", chat_text, file_name="lesson.txt")
+        
+        st.divider()
         if st.button("Logout"):
             st.session_state.user = None
             st.rerun()
 
     st.title("ZEST AI ⚡️")
+    
+    # --- ФИШКА 3: НАСТРОЙКА ГОЛОСА ---
+    with st.expander("⚙️ Audio Settings"):
+        voice_speed = st.slider("Voice Speed:", 0.5, 1.5, 1.0, 0.1)
 
-    # Первый запуск
     if not st.session_state.messages:
-        sys = get_system_prompt(user)
+        sys = f"Role: IELTS Coach Arman. Student Lang: {user['native_lang']}. Style: Socratic, Brief (2-3 sentences). Explain errors in Native Lang, practice in English. Strict Focus on IELTS."
         st.session_state.messages.append({"role": "system", "content": sys})
-        wel = f"Hi {user['name']}! Ready for {topic}? (Click 🎙️ to speak)"
-        st.session_state.messages.append({"role": "assistant", "content": wel})
-        save_history(user["row_id"], st.session_state.messages)
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready to practice? (Press 🎙️)"})
 
-    # Чат
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             av = "👨‍🏫" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # --- ИНТЕРФЕЙС ВВОДА ---
-    # Аудио (На мобилке нужно будет нажать Play на ответе)
+    # ВВОД
     audio_val = st.audio_input("Speak / Говорить 🎙️")
-    text_val = st.chat_input("Type here...")
+    text_val = st.chat_input("Type...")
 
-    user_input = None
+    user_in = None
     if audio_val:
-        with st.spinner("Transcribing..."):
-            try:
-                transcription = client.audio.transcriptions.create(model="whisper-1", file=audio_val)
-                user_input = transcription.text
-            except Exception as e:
-                st.error("Audio error. Try text.")
+        with st.spinner("👂..."):
+            user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
     elif text_val:
-        user_input = text_val
+        user_in = text_val
 
-    if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    if user_in:
+        st.session_state.messages.append({"role": "user", "content": user_in})
         with st.chat_message("user", avatar="👤"):
-            st.markdown(user_input)
+            st.markdown(user_in)
 
         with st.chat_message("assistant", avatar="👨‍🏫"):
             full_resp = ""
             ph = st.empty()
-            
-            # Генерация текста
             stream = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
@@ -212,11 +167,10 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
-            # Генерация голоса (БЕЗ AUTOPLAY для стабильности на мобилках)
-            # Мы генерируем аудио, но пользователь должен нажать Play сам
-            response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
-            st.audio(response.content, format="audio/mp3") 
+            # --- ПРИМЕНЕНИЕ СКОРОСТИ ГОЛОСА ---
+            resp_audio = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp, speed=voice_speed)
+            st.audio(resp_audio.content, format="audio/mp3")
 
         st.session_state.messages.append({"role": "assistant", "content": full_resp})
         save_history(user["row_id"], st.session_state.messages)
-        st.rerun() # Обновляем прогресс-бар
+        st.rerun()
