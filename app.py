@@ -4,19 +4,29 @@ import gspread
 import json
 import random
 
-# --- 1. НАСТРОЙКИ ---
-st.set_page_config(page_title="ALAN | IELTS", page_icon="⚡️", layout="centered")
+# --- 1. НАСТРОЙКИ СТРАНИЦЫ ---
+st.set_page_config(page_title="ALAN | IELTS Platform", page_icon="⚡️", layout="wide")
 
-# Скрываем только футер, чтобы не ломать верстку
+# CSS для красивого отображения метрик и кнопок
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Стили для карточек в топе */
+    .metric-container {
+        background-color: rgba(255, 255, 255, 0.05);
+        border: 1px solid #333;
+        padding: 15px;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. БАЗА ДАННЫХ ---
+# --- 2. БД ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -26,9 +36,7 @@ def get_db_connection():
         gc = gspread.service_account_from_dict(credentials_dict)
         sh = gc.open("IELTS_Users_DB")
         return sh.sheet1
-    except Exception as e:
-        st.error(f"DB Error: {e}") # ПОКАЗЫВАЕМ ОШИБКУ БД
-        return None
+    except: return None
 
 worksheet = get_db_connection()
 
@@ -40,161 +48,153 @@ def load_user(phone):
         if cell:
             row = worksheet.row_values(cell.row)
             hist = row[4] if len(row) > 4 else "[]"
-            pwd = row[5] if len(row) > 5 else "" 
-            lang = row[6] if len(row) > 6 else "English" 
-            try: h = json.loads(hist)
-            except: h = []
-            return {"row_id": cell.row, "name": row[1], "level": row[2], "target": row[3], "history": h, "password": str(pwd), "native_lang": lang}
+            return {
+                "row_id": cell.row, "name": row[1], "band": row[2], 
+                "target": row[3], "history": json.loads(hist), 
+                "password": str(row[5]), "native_lang": row[6]
+            }
     except: return None
 
-def register_user(phone, name, level, target, password, native_lang):
-    if not worksheet: return None
-    try:
-        if worksheet.find(phone): return "EXISTS"
-        worksheet.append_row([phone, name, level, target, "[]", password, native_lang])
-        return load_user(phone)
-    except: return None
-
-def save_history(row_id, messages):
+def update_user_data(row_id, band=None, history=None):
     if not worksheet: return
-    try: worksheet.update_cell(row_id, 5, json.dumps(messages, ensure_ascii=False))
+    try:
+        if band: worksheet.update_cell(row_id, 3, str(band))
+        if history: worksheet.update_cell(row_id, 5, json.dumps(history, ensure_ascii=False))
     except: pass
 
 def get_wod():
-    words = [("Ubiquitous", "Вездесущий"), ("Ephemeral", "Мимолетный"), ("Eloquent", "Красноречивый"), ("Resilient", "Устойчивый")]
+    words = [("Ubiquitous", "Вездесущий"), ("Eloquent", "Красноречивый"), ("Resilient", "Устойчивый"), ("Inevitable", "Неизбежный")]
     return random.choice(words)
 
 # --- 4. OPENAI ---
-if "OPENAI_API_KEY" not in st.secrets:
-    st.error("⚠️ Нет API ключа в Secrets!")
-    st.stop()
-    
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 5. ИНИЦИАЛИЗАЦИЯ ---
 if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
 if "wod" not in st.session_state: st.session_state.wod = get_wod()
 
-# ==================== ВХОД ====================
+# ==================== ЭКРАН ВХОДА ====================
 if not st.session_state.user:
-    st.title("⚡️ ALAN | IELTS")
-    tab1, tab2 = st.tabs(["Войти", "Регистрация"])
-    with tab1:
-        with st.form("login"):
-            ph = st.text_input("ID:")
-            pw = st.text_input("Pass:", type="password")
-            if st.form_submit_button("Start"):
-                ud = load_user(ph)
-                if ud and str(ud["password"]).strip() == str(pw).strip():
-                    st.session_state.user = ud
-                    st.session_state.messages = ud["history"]
-                    st.rerun()
-                else: st.error("Ошибка входа")
-    with tab2:
-        with st.form("reg"):
-            n_ph = st.text_input("ID:")
-            n_pw = st.text_input("Pass:")
-            n_nm = st.text_input("Name:")
-            n_la = st.selectbox("Lang:", ["Kazakh", "Russian", "English"])
-            if st.form_submit_button("Create"):
-                r = register_user(n_ph, n_nm, "Int", "7.0", n_pw, n_la)
-                if r: 
-                    st.session_state.user = r
-                    st.session_state.messages = []
-                    st.rerun()
+    st.title("⚡️ ZEST AI | ALAN")
+    with st.form("login_form"):
+        ph = st.text_input("Phone Number (ID):")
+        pw = st.text_input("Password:", type="password")
+        if st.form_submit_button("Enter Platform"):
+            u = load_user(ph)
+            if u and u["password"] == pw:
+                st.session_state.user = u
+                st.session_state.messages = u["history"]
+                st.rerun()
+            else: st.error("Wrong ID or Password")
 
-# ==================== ЧАТ ====================
+# ==================== ГЛАВНЫЙ ИНТЕРФЕЙС ====================
 else:
     user = st.session_state.user
     
-    with st.sidebar:
-        st.info(f"💡 Word: **{st.session_state.wod[0]}**")
-        if st.button("🧹 Clear Chat"):
-            st.session_state.messages = []
-            st.rerun()
-        if st.button("🚪 Logout"):
+    # --- ШАПКА (ВИДНА ВСЕГДА) ---
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col1:
+        st.metric(label="Current Band", value=user['band'], delta=f"Target: {user['target']}")
+    
+    with col2:
+        st.info(f"💡 Word of Day: **{st.session_state.wod[0]}** ({st.session_state.wod[1]})")
+        
+    with col3:
+        if st.button("🚪 Logout", use_container_width=True):
             st.session_state.user = None
             st.rerun()
 
-    st.title("ALAN ⚡️")
+    st.divider()
 
-    # Системный промпт
-    if not st.session_state.messages:
-        sys = f"Role: IELTS Coach ALAN. Lang: {user['native_lang']}. Style: Brief (2 sentences). Correct errors. Ask questions."
-        st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready? (Press 🎙️)"})
+    # --- НАВИГАЦИЯ ПО СЕКЦИЯМ (ВСЕГДА ВИДНО) ---
+    tab_speak, tab_write, tab_read, tab_listen = st.tabs([
+        "🎙️ Speaking", "📝 Writing", "📖 Reading", "🎧 Listening"
+    ])
 
-    # Вывод истории
-    for msg in st.session_state.messages:
-        if msg["role"] != "system":
-            av = "👨‍💻" if msg["role"] == "assistant" else "👤"
-            with st.chat_message(msg["role"], avatar=av):
-                st.markdown(msg["content"])
+    # --- 🎙️ СЕКЦИЯ: SPEAKING ---
+    with tab_speak:
+        st.subheader("IELTS Speaking Simulator")
+        
+        # Кнопка сброса внутри вкладки
+        if st.button("🧹 Clear Chat History", key="clear_speak"):
+            st.session_state.messages = []
+            update_user_data(user['row_id'], history=[])
+            st.rerun()
 
-    # --- ЗОНА ВВОДА ---
-    st.write("---")
-    
-    # Микрофон
-    audio_val = st.audio_input("Golos / Voice 🎙️")
-    # Текст
-    text_val = st.chat_input("Type here...")
+        # Вывод чата
+        for msg in st.session_state.messages[-10:]:
+            if msg["role"] != "system":
+                with st.chat_message(msg["role"], avatar="👨‍💻" if msg["role"]=="assistant" else "👤"):
+                    st.markdown(msg["content"])
 
-    user_in = None
-    
-    # Обработка ввода (Показываем ошибки транскрипции)
-    if audio_val:
-        try:
-            with st.spinner("Слушаю..."):
-                transcription = client.audio.transcriptions.create(model="whisper-1", file=audio_val)
-                user_in = transcription.text
-        except Exception as e:
-            st.error(f"Ошибка микрофона: {e}")
-    elif text_val:
-        user_in = text_val
+        # Ввод
+        audio_val = st.audio_input("Record your answer", key="mic_speak")
+        text_val = st.chat_input("Or type to Alan...", key="text_speak")
+        
+        user_in = None
+        if audio_val:
+            user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
+        elif text_val:
+            user_in = text_val
 
-    # --- ГЕНЕРАЦИЯ ОТВЕТА ---
-    if user_in:
-        # 1. Показываем вопрос юзера
-        st.session_state.messages.append({"role": "user", "content": user_in})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(user_in)
+        if user_in:
+            st.session_state.messages.append({"role": "user", "content": user_in})
+            with st.chat_message("user"): st.markdown(user_in)
 
-        # 2. Алан отвечает
-        with st.chat_message("assistant", avatar="👨‍💻"):
-            full_resp = ""
-            ph = st.empty()
-            
-            try:
-                # ГЕНЕРАЦИЯ ТЕКСТА
-                stream = client.chat.completions.create(
-                    model="gpt-4o-mini", # Используем быструю модель
-                    messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                    stream=True
-                )
-                for chunk in stream:
-                    if chunk.choices[0].delta.content:
-                        full_resp += chunk.choices[0].delta.content
-                        ph.markdown(full_resp + " ▌")
-                ph.markdown(full_resp)
+            with st.chat_message("assistant"):
+                # Промпт для ИИ: учить и оценивать
+                prompt = f"""You are ALAN, an IELTS examiner. Analyze user input: '{user_in}'.
+                1. Provide brief feedback.
+                2. Ask next logical question for IELTS Part 1 or 2.
+                3. If the user improved, add [NEWBAND: X.X] to the end of your message. Be strict."""
                 
-                # ГЕНЕРАЦИЯ АУДИО (С проверкой ошибок)
-                try:
-                    with st.spinner("Генерирую голос..."):
-                        response = client.audio.speech.create(
-                            model="tts-1",
-                            voice="onyx",
-                            input=full_resp
-                        )
-                        # Ключ плеера привязан к длине истории, чтобы быть уникальным
-                        st.audio(response.content, format="audio/mp3")
-                except Exception as e:
-                    st.warning(f"Ошибка голоса: {e}") # Покажет, если кончились лимиты на TTS
-                    
-            except Exception as e:
-                st.error(f"Ошибка ИИ: {e}") # Покажет, если кончились деньги на счету OpenAI
+                resp = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "system", "content": prompt}] + st.session_state.messages[-5:]
+                )
+                full_text = resp.choices[0].message.content
+                
+                # Обновление Band Score
+                if "[NEWBAND:" in full_text:
+                    new_val = full_text.split("[NEWBAND:")[1].split("]")[0].strip()
+                    user['band'] = new_val
+                    full_text = full_text.split("[NEWBAND:")[0]
+                    update_user_data(user['row_id'], band=new_val)
+                    st.toast(f"🎉 Band Updated to {new_val}!", icon="🔥")
+                
+                st.markdown(full_text)
+                
+                # Озвучка
+                voice = client.audio.speech.create(model="tts-1", voice="onyx", input=full_text)
+                st.audio(voice.content, format="audio/mp3")
 
-        # 3. Сохраняем
-        if full_resp:
-            st.session_state.messages.append({"role": "assistant", "content": full_resp})
-            save_history(user["row_id"], st.session_state.messages)
+            st.session_state.messages.append({"role": "assistant", "content": full_text})
+            update_user_data(user['row_id'], history=st.session_state.messages)
+
+    # --- 📝 СЕКЦИЯ: WRITING ---
+    with tab_write:
+        st.subheader("Writing Task 2 Checker")
+        topic = st.text_input("Essay Question Topic:")
+        essay = st.text_area("Your Essay (min 250 words):", height=300)
+        
+        if st.button("Check Band Score"):
+            if essay:
+                with st.spinner("Analyzing criteria..."):
+                    res = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "user", "content": f"Grade this IELTS essay based on 4 criteria and provide Band Score. Topic: {topic}. Essay: {essay}"}]
+                    )
+                    st.markdown(res.choices[0].message.content)
+            else: st.warning("Please paste your essay first.")
+
+    # --- 📖 СЕКЦИЯ: READING ---
+    with tab_read:
+        st.subheader("Daily Reading Practice")
+        st.info("Reading tests are being updated. Check back tomorrow for a new Academic text!")
+        # 
+
+    # --- 🎧 СЕКЦИЯ: LISTENING ---
+    with tab_listen:
+        st.subheader("Listening Audio Drills")
+        st.info("Audio sections will appear here. Alan is preparing the recordings.")
