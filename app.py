@@ -4,16 +4,18 @@ import gspread
 import json
 import random
 import time
+import pandas as pd # Нужно для графиков
+import numpy as np # Нужно для графиков
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
-    page_title="ALAN | IELTS Official Simulator",
+    page_title="ALAN | Official IELTS Simulator",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. ADVANCED CSS ---
+# --- 2. CSS STYLING ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
@@ -37,56 +39,69 @@ st.markdown("""
     }
     .correct { color: #00c853; font-weight: bold; }
     .wrong { color: #d50000; font-weight: bold; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATABASE CONTENT (QUESTION BANK) ---
+# --- 3. DATABASE CONTENT ---
 SPEAKING_DB = [
     {
-        "topic": "Hometown & Accommodation",
-        "part1": ["Let's talk about where you live. Do you live in a house or an apartment?", "What is your favorite room?", "Do you plan to move soon?"],
-        "card": "Describe a house or apartment you would like to live in.\nYou should say:\n- Where it is\n- How big it is\n- Who you would live with\nAnd explain why you want to live there.",
-        "part3": ["How have housing types changed in your country?", "Is it better to rent or buy a home?"]
+        "topic": "Hometown",
+        "part1": ["Where is your hometown?", "Is it a big city or a small place?", "Do you like living there?"],
+        "card": "Describe a tourist attraction in your country.\nYou should say:\n- What it is\n- Where it is\n- What you can do there\nAnd explain why you recommend it.",
+        "part3": ["Does tourism help the local economy?", "Why do some people prefer traveling abroad?"]
     }
 ]
 
+# Генерируем данные для графика (чтобы не зависеть от картинок)
+CHART_DATA = pd.DataFrame(
+    np.array([[150, 200], [170, 180], [180, 160], [200, 140]]),
+    columns=['Fish Consumption', 'Meat Consumption'],
+    index=['1990', '1995', '2000', '2005']
+)
+
 WRITING_DB = {
-    "task1": [
-        {
-            "type": "Line Graph",
-            "image": "https://www.ielts-mentor.com/images/writingsamples/ielts-line-graph-1.png",
-            "prompt": "The graph shows fish and meat consumption in a European country (1979-2004). Summarize the trends."
-        }
-    ],
+    "task1": {
+        "type": "Line Graph",
+        "data": CHART_DATA, # Данные вместо картинки
+        "prompt": "The graph below shows the consumption of fish and meat in a European country between 1990 and 2005. Summarise the information."
+    },
     "task2": [
-        "Some people say that the best way to improve public health is by increasing the number of sports facilities. Others think that this has little effect and that other measures are required. Discuss both views and give your opinion."
+        "Some people believe that social media has a negative impact on social interaction. To what extent do you agree or disagree?"
     ]
 }
 
 READING_DB = [
     {
-        "title": "The History of Tea",
+        "title": "The Sleep Cycle",
         "text": """
-        The story of tea begins in China. According to legend, in 2737 BC, the Chinese emperor Shen Nung was sitting beneath a tree while his servant boiled drinking water, when some leaves from the tree blew into the water. The emperor decided to try the brew.
-        Tea consumption spread throughout the Chinese culture, reaching every aspect of the society. In 800 AD, Lu Yu wrote the first definitive book on tea, the Ch'a Ching. This work helped to standardize the cultivation and preparation of tea.
+        Sleep is divided into two broad types: non-rapid eye movement (NREM) sleep and rapid eye movement (REM) sleep. NREM sleep is further divided into three stages. Stage 1 is a light sleep from which you can be easily awakened. Stage 2 is a deeper sleep where your heart rate slows. Stage 3 is deep sleep, crucial for physical recovery.
+        REM sleep, on the other hand, is when most dreaming occurs. It is essential for cognitive functions such as memory consolidation and mood regulation. Lack of REM sleep can lead to difficulty concentrating.
         """,
         "questions": [
-            {"q": "Who wrote the first definitive book on tea?", "a": "Lu Yu", "options": []},
-            {"q": "Tea was discovered in India. (True/False/Not Given)", "a": "False", "options": ["True", "False", "Not Given"]}
+            {"q": "Which stage of sleep is most important for physical recovery?", "a": "Stage 3", "options": ["Stage 1", "Stage 2", "Stage 3"]},
+            {"q": "Dreaming occurs mostly during NREM sleep. (True/False/Not Given)", "a": "False", "options": ["True", "False", "Not Given"]}
         ]
     }
 ]
 
+# Сценарий для аудио (Алан сам его озвучит)
+LISTENING_SCRIPT = """
+Hello, City Library. How can I help you?
+Hi, I would like to register for a library card.
+Certainly. Can I have your surname, please?
+Yes, it's Black. B-L-A-C-K.
+Thank you, Mr. Black. And what is your address?
+It's 24 Park Street.
+"""
+
 LISTENING_DB = [
     {
-        "title": "Section 1: Hotel Booking",
-        "audio": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", 
-        "context": "You will hear a man phoning a hotel to book a room.",
+        "title": "Section 1: Library Registration",
+        "script": LISTENING_SCRIPT, # Текст скрипта
+        "context": "You will hear a student registering at a library. Listen and complete the form.",
         "questions": [
-            {"label": "1. Number of nights:", "a": "3"},
-            {"label": "2. Guest Name: Mr. ______", "a": "Thompson"}
+            {"label": "1. Surname:", "a": "Black"},
+            {"label": "2. Address: 24 ______ Street", "a": "Park"}
         ]
     }
 ]
@@ -117,7 +132,6 @@ def register_user(phone, name, password):
     if not worksheet: return "DB_ERROR"
     try:
         if worksheet.find(phone): return "EXISTS"
-        # Структура: Phone, Name, Band, Target, History, Password, Lang
         worksheet.append_row([phone, name, "5.0", "7.0", "[]", password, "English"])
         return get_user(phone)
     except: return "ERROR"
@@ -125,56 +139,43 @@ def register_user(phone, name, password):
 def sync_data(row_id, band):
     if worksheet: worksheet.update_cell(row_id, 3, str(band))
 
-# OPENAI CLIENT
 if "OPENAI_API_KEY" in st.secrets:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 else:
     st.error("API Key Missing.")
     st.stop()
 
-# SESSION STATE
 if "user" not in st.session_state: st.session_state.user = None
 if "speaking_state" not in st.session_state: st.session_state.speaking_state = {"active": False, "part": 0, "q_idx": 0, "test": None}
 
-# ==================== AUTH SCREEN (LOGIN & REGISTER) ====================
+# ==================== AUTH SCREEN ====================
 if not st.session_state.user:
-    st.title("⚡️ ALAN | IELTS Official Simulator")
-    
-    # ВОТ ОНА - ВЕРНУВШАЯСЯ РЕГИСТРАЦИЯ!
-    tab1, tab2 = st.tabs(["Login", "Create Account"])
-    
+    st.title("⚡️ ALAN | IELTS Simulator")
+    tab1, tab2 = st.tabs(["Login", "Register"])
     with tab1:
-        with st.form("login_form"):
-            ph = st.text_input("Student ID (Phone):")
+        with st.form("login"):
+            ph = st.text_input("ID:")
             pw = st.text_input("Password:", type="password")
-            if st.form_submit_button("Start Exam"):
+            if st.form_submit_button("Start"):
                 u = get_user(ph)
                 if u and u["pwd"] == pw:
                     st.session_state.user = u
                     st.session_state.messages = u["history"]
                     st.rerun()
-                else: st.error("Invalid ID or Password")
-                
+                else: st.error("Invalid Login")
     with tab2:
-        with st.form("reg_form"):
-            new_ph = st.text_input("New Student ID (Phone):")
-            new_name = st.text_input("Full Name:")
-            new_pw = st.text_input("Create Password:", type="password")
-            if st.form_submit_button("Register"):
-                if new_ph and new_name and new_pw:
-                    res = register_user(new_ph, new_name, new_pw)
-                    if res == "EXISTS":
-                        st.error("User already exists!")
-                    elif res == "ERROR" or res == "DB_ERROR":
-                        st.error("Database Error. Try again.")
-                    else:
-                        st.success("Account created! Logging in...")
-                        st.session_state.user = res
-                        st.session_state.messages = []
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.warning("Please fill all fields.")
+        with st.form("reg"):
+            n_ph = st.text_input("New ID:")
+            n_nm = st.text_input("Name:")
+            n_pw = st.text_input("Password:", type="password")
+            if st.form_submit_button("Create Account"):
+                res = register_user(n_ph, n_nm, n_pw)
+                if res == "EXISTS": st.error("User exists")
+                elif res == "ERROR": st.error("Error")
+                else: 
+                    st.session_state.user = res
+                    st.session_state.messages = []
+                    st.rerun()
 
 # ==================== EXAM PLATFORM ====================
 else:
@@ -184,20 +185,18 @@ else:
     c1, c2, c3 = st.columns([1, 2, 1])
     c1.metric("Band Score", u['band'], delta="Current Level")
     c2.markdown(f"### Student: {u['name']}")
-    if c3.button("Save & Logout", use_container_width=True): 
+    if c3.button("Logout", use_container_width=True): 
         st.session_state.user = None; st.rerun()
     st.divider()
 
-    # --- TABS ---
     t_speak, t_write, t_read, t_listen = st.tabs(["🎙️ SPEAKING", "📝 WRITING", "📖 READING", "🎧 LISTENING"])
 
-    # --- 1. SPEAKING MODULE ---
+    # --- 1. SPEAKING ---
     with t_speak:
         state = st.session_state.speaking_state
-        
         if not state["active"]:
-            st.markdown("<div class='exam-paper'><h3>Speaking Test</h3><p>Duration: 11-14 minutes. Includes Part 1, 2 and 3.</p></div>", unsafe_allow_html=True)
-            if st.button("Start Speaking Test"):
+            st.info("Part 1: Interview | Part 2: Cue Card | Part 3: Discussion")
+            if st.button("Start Test"):
                 state["active"] = True
                 state["test"] = random.choice(SPEAKING_DB)
                 state["part"] = 1
@@ -205,147 +204,100 @@ else:
                 st.rerun()
         else:
             test = state["test"]
-            
-            # PART 1
             if state["part"] == 1:
-                st.subheader("Part 1: Introduction")
-                current_q = test['part1'][state['q_idx']]
-                st.markdown(f"<div class='question-box'>🗣️ <b>Examiner:</b> {current_q}</div>", unsafe_allow_html=True)
-                
-                for msg in st.session_state.messages[-3:]:
-                    with st.chat_message(msg["role"]): st.write(msg["content"])
-
-                audio = st.audio_input("Record Answer", key="spk_p1")
+                st.subheader("Part 1")
+                q = test['part1'][state['q_idx']]
+                st.markdown(f"<div class='question-box'>🗣️ <b>Examiner:</b> {q}</div>", unsafe_allow_html=True)
+                audio = st.audio_input("Record Answer")
                 if audio:
                     txt = client.audio.transcriptions.create(model="whisper-1", file=audio).text
                     st.session_state.messages.append({"role": "user", "content": txt})
-                    
                     if state["q_idx"] < len(test['part1']) - 1:
                         state["q_idx"] += 1
-                        st.success("Answer recorded. Next question...")
-                        time.sleep(1)
                         st.rerun()
                     else:
                         state["part"] = 2
                         st.rerun()
-
-            # PART 2
             elif state["part"] == 2:
-                st.subheader("Part 2: Cue Card")
-                st.markdown(f"<div class='exam-paper'><b>Topic:</b><br>{test['card']}</div>", unsafe_allow_html=True)
-                st.info("You have 1 minute to think. (Timer is running...)")
-                
-                if st.button("I am ready to start speaking (2 mins)"):
-                     state["part"] = 3
-                     st.rerun()
-
-            # PART 3
+                st.subheader("Part 2 (Cue Card)")
+                st.info(test['card'])
+                if st.button("Start Speaking (2 mins)"): state["part"] = 3; st.rerun()
             elif state["part"] == 3:
-                st.subheader("Part 3: Discussion")
-                st.markdown(f"<div class='question-box'>Let's discuss: {test['part3'][0]}</div>", unsafe_allow_html=True)
-                
-                audio_p3 = st.audio_input("Record Final Answer", key="spk_p3")
-                if audio_p3:
-                    st.success("Test Finished. Generating Feedback...")
-                    resp = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "system", "content": "Give IELTS Band Score and Feedback."}, 
-                                  {"role": "user", "content": "Analyze my previous answers."}]
-                    )
-                    st.markdown(resp.choices[0].message.content)
-                    if st.button("Close Test"):
-                        state["active"] = False
-                        st.rerun()
+                st.subheader("Part 3")
+                st.write(f"Question: {test['part3'][0]}")
+                if st.audio_input("Final Answer"):
+                    st.success("Test Finished. Feedback generating...")
+                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user", "content":"Grade my speaking."}])
+                    st.write(res.choices[0].message.content)
+                    if st.button("Close"): state["active"]=False; st.rerun()
 
-    # --- 2. WRITING MODULE ---
+    # --- 2. WRITING (FIXED IMAGE) ---
     with t_write:
-        mode = st.radio("Choose Task:", ["Task 1", "Task 2"], horizontal=True)
-        
+        mode = st.radio("Task:", ["Task 1", "Task 2"], horizontal=True)
         if mode == "Task 1":
-            if "w_task1" not in st.session_state: st.session_state.w_task1 = random.choice(WRITING_DB["task1"])
-            task = st.session_state.w_task1
-            st.image(task['image'], width=500)
-            st.markdown(f"**Prompt:** {task['prompt']}")
+            task = WRITING_DB["task1"]
+            st.subheader(f"Task 1: {task['type']}")
+            # РИСУЕМ ГРАФИК САМИ (ЧТОБЫ НЕ БЫЛО БИТЫХ КАРТИНОК)
+            st.line_chart(task['data'])
+            st.caption(task['prompt'])
             
-            essay1 = st.text_area("Report (min 150 words):", height=200)
+            essay1 = st.text_area("Report:", height=200)
             if st.button("Grade Task 1"):
-                with st.spinner("Alan is marking..."):
-                    res = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Act as IELTS Examiner. Grade this Task 1 report based on image description: '{task['prompt']}'. Report: {essay1}"}]
-                    )
-                    st.markdown(res.choices[0].message.content)
-
+                with st.spinner("Checking..."):
+                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user", "content":f"Grade Task 1: {essay1}"}])
+                    st.write(res.choices[0].message.content)
         else:
-            if "w_task2" not in st.session_state: st.session_state.w_task2 = random.choice(WRITING_DB["task2"])
-            prompt = st.session_state.w_task2
-            st.markdown(f"<div class='question-box'>{prompt}</div>", unsafe_allow_html=True)
-            
-            essay2 = st.text_area("Essay (min 250 words):", height=300)
+            prompt = random.choice(WRITING_DB["task2"])
+            st.info(prompt)
+            essay2 = st.text_area("Essay:", height=300)
             if st.button("Grade Task 2"):
-                with st.spinner("Alan is marking..."):
-                    res = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Act as IELTS Examiner. Grade this Task 2 Essay strictly. Essay: {essay2}"}]
-                    )
-                    st.markdown(res.choices[0].message.content)
+                with st.spinner("Checking..."):
+                    res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user", "content":f"Grade Task 2: {essay2}"}])
+                    st.write(res.choices[0].message.content)
 
-    # --- 3. READING MODULE ---
+    # --- 3. READING ---
     with t_read:
-        if "r_exam" not in st.session_state: st.session_state.r_exam = random.choice(READING_DB)
-        exam = st.session_state.r_exam
-        
-        c1, c2 = st.columns([3,1])
-        c1.markdown(f"### {exam['title']}")
-        if c2.button("🔄 New Text"): st.session_state.r_exam = random.choice(READING_DB); st.rerun()
-        
+        exam = READING_DB[0]
+        st.subheader(exam['title'])
         st.markdown(f"<div class='exam-paper'>{exam['text']}</div>", unsafe_allow_html=True)
         
-        score = 0
-        with st.form("read_form"):
-            user_answers = []
+        answers = []
+        with st.form("read"):
             for i, q in enumerate(exam['questions']):
                 st.write(f"**{i+1}. {q['q']}**")
-                if q['options']:
-                    val = st.radio("Select:", q['options'], key=f"r_{i}", label_visibility="collapsed")
-                else:
-                    val = st.text_input("Answer:", key=f"r_{i}", label_visibility="collapsed")
-                user_answers.append(val)
-            
-            if st.form_submit_button("Submit Answers"):
-                st.write("### Results:")
-                for i, ans in enumerate(user_answers):
-                    correct = exam['questions'][i]['a']
-                    if ans.lower().strip() == correct.lower():
-                        st.markdown(f"{i+1}. ✅ Correct")
-                        score += 1
-                    else:
-                        st.markdown(f"{i+1}. ❌ Your answer: **{ans}** | Correct: <span class='correct'>{correct}</span>", unsafe_allow_html=True)
-                
-                st.info(f"Total Score: {score}/{len(exam['questions'])}")
+                val = st.radio("Select:", q['options'], key=f"r{i}", label_visibility="collapsed")
+                answers.append(val)
+            if st.form_submit_button("Submit"):
+                score = 0
+                for i, ans in enumerate(answers):
+                    if ans == exam['questions'][i]['a']: score += 1
+                st.success(f"Score: {score}/{len(answers)}")
 
-    # --- 4. LISTENING MODULE ---
+    # --- 4. LISTENING (REAL AUDIO GENERATION) ---
     with t_listen:
-        if "l_exam" not in st.session_state: st.session_state.l_exam = random.choice(LISTENING_DB)
-        lexam = st.session_state.l_exam
+        test = LISTENING_DB[0]
+        st.subheader(test['title'])
+        st.write(f"Context: {test['context']}")
         
-        st.markdown(f"### {lexam['title']}")
-        st.write(f"Context: {lexam['context']}")
-        st.audio(lexam['audio'])
+        # ГЕНЕРАЦИЯ АУДИО НА ЛЕТУ (ЧТОБЫ НЕ БЫЛО МУЗЫКИ)
+        if "audio_bytes" not in st.session_state:
+            with st.spinner("Generating Audio Track..."):
+                response = client.audio.speech.create(
+                    model="tts-1",
+                    voice="alloy", # Голос диктора
+                    input=test['script']
+                )
+                st.session_state.audio_bytes = response.content
         
-        score_l = 0
-        with st.form("listen_form"):
-            l_answers = []
-            for i, q in enumerate(lexam['questions']):
-                val = st.text_input(q['label'], key=f"l_{i}")
-                l_answers.append(val)
-            
-            if st.form_submit_button("Check Listening"):
-                st.write("### Results:")
-                for i, ans in enumerate(l_answers):
-                    correct = lexam['questions'][i]['a']
-                    if ans.lower().strip() == correct.lower():
-                        st.markdown(f"{i+1}. ✅ Correct")
-                        score_l += 1
-                    else:
-                        st.markdown(f"{i+1}. ❌ Correct answer: <span class='correct'>{correct}</span>", unsafe_allow_html=True)
+        st.audio(st.session_state.audio_bytes, format="audio/mp3")
+        
+        l_ans = []
+        with st.form("listen"):
+            for i, q in enumerate(test['questions']):
+                val = st.text_input(q['label'])
+                l_ans.append(val)
+            if st.form_submit_button("Check"):
+                score = 0
+                for i, ans in enumerate(l_ans):
+                    if test['questions'][i]['a'].lower() in ans.lower(): score += 1
+                st.success(f"Score: {score}/{len(l_ans)}")
