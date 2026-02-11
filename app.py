@@ -7,8 +7,7 @@ import random
 # --- 1. НАСТРОЙКИ ---
 st.set_page_config(page_title="ALAN | IELTS", page_icon="⚡️", layout="centered")
 
-# --- 2. CSS (ТОЛЬКО СКРЫВАЕМ ЛОГО, НЕ ТРОГАЕМ КНОПКИ) ---
-# Мы убрали весь код, который двигал кнопки. Теперь они встанут как надо.
+# Скрываем только футер, чтобы не ломать верстку
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -17,7 +16,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. БАЗА ДАННЫХ ---
+# --- 2. БАЗА ДАННЫХ ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -27,11 +26,13 @@ def get_db_connection():
         gc = gspread.service_account_from_dict(credentials_dict)
         sh = gc.open("IELTS_Users_DB")
         return sh.sheet1
-    except: return None
+    except Exception as e:
+        st.error(f"DB Error: {e}") # ПОКАЗЫВАЕМ ОШИБКУ БД
+        return None
 
 worksheet = get_db_connection()
 
-# --- 4. ФУНКЦИИ ---
+# --- 3. ФУНКЦИИ ---
 def load_user(phone):
     if not worksheet: return None
     try:
@@ -63,19 +64,22 @@ def get_wod():
     words = [("Ubiquitous", "Вездесущий"), ("Ephemeral", "Мимолетный"), ("Eloquent", "Красноречивый"), ("Resilient", "Устойчивый")]
     return random.choice(words)
 
-# --- 5. OPENAI ---
-if "OPENAI_API_KEY" not in st.secrets: st.stop()
+# --- 4. OPENAI ---
+if "OPENAI_API_KEY" not in st.secrets:
+    st.error("⚠️ Нет API ключа в Secrets!")
+    st.stop()
+    
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 6. ИНИЦИАЛИЗАЦИЯ ---
+# --- 5. ИНИЦИАЛИЗАЦИЯ ---
 if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
 if "wod" not in st.session_state: st.session_state.wod = get_wod()
 
-# ==================== ЭКРАН 1: ВХОД ====================
+# ==================== ВХОД ====================
 if not st.session_state.user:
     st.title("⚡️ ALAN | IELTS")
-    tab1, tab2 = st.tabs(["Log In", "Sign Up"])
+    tab1, tab2 = st.tabs(["Войти", "Регистрация"])
     with tab1:
         with st.form("login"):
             ph = st.text_input("ID:")
@@ -86,7 +90,7 @@ if not st.session_state.user:
                     st.session_state.user = ud
                     st.session_state.messages = ud["history"]
                     st.rerun()
-                else: st.error("Error")
+                else: st.error("Ошибка входа")
     with tab2:
         with st.form("reg"):
             n_ph = st.text_input("ID:")
@@ -100,7 +104,7 @@ if not st.session_state.user:
                     st.session_state.messages = []
                     st.rerun()
 
-# ==================== ЭКРАН 2: ЧАТ ====================
+# ==================== ЧАТ ====================
 else:
     user = st.session_state.user
     
@@ -115,60 +119,82 @@ else:
 
     st.title("ALAN ⚡️")
 
-    # Мозг
+    # Системный промпт
     if not st.session_state.messages:
         sys = f"Role: IELTS Coach ALAN. Lang: {user['native_lang']}. Style: Brief (2 sentences). Correct errors. Ask questions."
         st.session_state.messages.append({"role": "system", "content": sys})
-        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! I'm ready. (Use 🎙️ or Type)"})
+        st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready? (Press 🎙️)"})
 
-    # История сообщений
+    # Вывод истории
     for msg in st.session_state.messages:
         if msg["role"] != "system":
             av = "👨‍💻" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # --- ЗОНА ВВОДА (БЕЗ CSS МАГИИ) ---
-    st.write("---") # Просто линия разделитель
+    # --- ЗОНА ВВОДА ---
+    st.write("---")
     
-    # 1. МИКРОФОН (Обычный блок)
+    # Микрофон
     audio_val = st.audio_input("Golos / Voice 🎙️")
-    
-    # 2. ТЕКСТ (Всегда внизу)
+    # Текст
     text_val = st.chat_input("Type here...")
 
     user_in = None
+    
+    # Обработка ввода (Показываем ошибки транскрипции)
     if audio_val:
-        try: user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
-        except: pass
-    elif text_val: user_in = text_val
+        try:
+            with st.spinner("Слушаю..."):
+                transcription = client.audio.transcriptions.create(model="whisper-1", file=audio_val)
+                user_in = transcription.text
+        except Exception as e:
+            st.error(f"Ошибка микрофона: {e}")
+    elif text_val:
+        user_in = text_val
 
-    # --- ОТВЕТ ИИ ---
+    # --- ГЕНЕРАЦИЯ ОТВЕТА ---
     if user_in:
+        # 1. Показываем вопрос юзера
         st.session_state.messages.append({"role": "user", "content": user_in})
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_in)
 
+        # 2. Алан отвечает
         with st.chat_message("assistant", avatar="👨‍💻"):
             full_resp = ""
             ph = st.empty()
-            stream = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
-                stream=True
-            )
-            for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    full_resp += chunk.choices[0].delta.content
-                    ph.markdown(full_resp + " ▌")
-            ph.markdown(full_resp)
             
-            # АУДИО ОТВЕТ
             try:
-                response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
-                # ВАЖНО: key=... гарантирует, что плеер появится и будет работать
-                st.audio(response.content, format="audio/mp3", key=f"audio_res_{len(st.session_state.messages)}")
-            except: pass
+                # ГЕНЕРАЦИЯ ТЕКСТА
+                stream = client.chat.completions.create(
+                    model="gpt-4o-mini", # Используем быструю модель
+                    messages=[{"role": m["role"], "content": m["content"]} for m in st.session_state.messages],
+                    stream=True
+                )
+                for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        full_resp += chunk.choices[0].delta.content
+                        ph.markdown(full_resp + " ▌")
+                ph.markdown(full_resp)
+                
+                # ГЕНЕРАЦИЯ АУДИО (С проверкой ошибок)
+                try:
+                    with st.spinner("Генерирую голос..."):
+                        response = client.audio.speech.create(
+                            model="tts-1",
+                            voice="onyx",
+                            input=full_resp
+                        )
+                        # Ключ плеера привязан к длине истории, чтобы быть уникальным
+                        st.audio(response.content, format="audio/mp3")
+                except Exception as e:
+                    st.warning(f"Ошибка голоса: {e}") # Покажет, если кончились лимиты на TTS
+                    
+            except Exception as e:
+                st.error(f"Ошибка ИИ: {e}") # Покажет, если кончились деньги на счету OpenAI
 
-        st.session_state.messages.append({"role": "assistant", "content": full_resp})
-        save_history(user["row_id"], st.session_state.messages)
+        # 3. Сохраняем
+        if full_resp:
+            st.session_state.messages.append({"role": "assistant", "content": full_resp})
+            save_history(user["row_id"], st.session_state.messages)
