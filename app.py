@@ -13,13 +13,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. ADVANCED CSS (EXAM UI) ---
+# --- 2. ADVANCED CSS ---
 st.markdown("""
 <style>
-    /* General Cleanup */
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-    
-    /* Exam Paper Style */
     .exam-paper {
         background-color: #ffffff;
         padding: 30px;
@@ -30,8 +27,6 @@ st.markdown("""
         margin-bottom: 20px;
     }
     .dark-mode .exam-paper { background-color: #262730; color: #fff; border: 1px solid #444; }
-    
-    /* Question Box */
     .question-box {
         background-color: #f0f2f6;
         padding: 15px;
@@ -40,18 +35,14 @@ st.markdown("""
         border-radius: 5px;
         color: #000;
     }
-    
-    /* Correct/Wrong Tags */
     .correct { color: #00c853; font-weight: bold; }
     .wrong { color: #d50000; font-weight: bold; }
-    
-    /* Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. CONTENT DATABASE (EXPANDABLE) ---
+# --- 3. DATABASE CONTENT (QUESTION BANK) ---
 SPEAKING_DB = [
     {
         "topic": "Hometown & Accommodation",
@@ -91,7 +82,7 @@ READING_DB = [
 LISTENING_DB = [
     {
         "title": "Section 1: Hotel Booking",
-        "audio": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", # Заглушка, замените на реальный URL
+        "audio": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", 
         "context": "You will hear a man phoning a hotel to book a room.",
         "questions": [
             {"label": "1. Number of nights:", "a": "3"},
@@ -122,6 +113,15 @@ def get_user(phone):
             return {"row": cell.row, "name": row[1], "band": row[2], "target": row[3], "history": hist, "pwd": str(row[5])}
     except: return None
 
+def register_user(phone, name, password):
+    if not worksheet: return "DB_ERROR"
+    try:
+        if worksheet.find(phone): return "EXISTS"
+        # Структура: Phone, Name, Band, Target, History, Password, Lang
+        worksheet.append_row([phone, name, "5.0", "7.0", "[]", password, "English"])
+        return get_user(phone)
+    except: return "ERROR"
+
 def sync_data(row_id, band):
     if worksheet: worksheet.update_cell(row_id, 3, str(band))
 
@@ -129,26 +129,52 @@ def sync_data(row_id, band):
 if "OPENAI_API_KEY" in st.secrets:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 else:
-    st.error("API Key Missing. Please check secrets.")
+    st.error("API Key Missing.")
     st.stop()
 
 # SESSION STATE
 if "user" not in st.session_state: st.session_state.user = None
 if "speaking_state" not in st.session_state: st.session_state.speaking_state = {"active": False, "part": 0, "q_idx": 0, "test": None}
 
-# ==================== LOGIN SCREEN ====================
+# ==================== AUTH SCREEN (LOGIN & REGISTER) ====================
 if not st.session_state.user:
     st.title("⚡️ ALAN | IELTS Official Simulator")
-    with st.form("auth"):
-        ph = st.text_input("Student ID:")
-        pw = st.text_input("Password:", type="password")
-        if st.form_submit_button("Start Exam"):
-            u = get_user(ph)
-            if u and u["pwd"] == pw:
-                st.session_state.user = u
-                st.session_state.messages = u["history"]
-                st.rerun()
-            else: st.error("Access Denied")
+    
+    # ВОТ ОНА - ВЕРНУВШАЯСЯ РЕГИСТРАЦИЯ!
+    tab1, tab2 = st.tabs(["Login", "Create Account"])
+    
+    with tab1:
+        with st.form("login_form"):
+            ph = st.text_input("Student ID (Phone):")
+            pw = st.text_input("Password:", type="password")
+            if st.form_submit_button("Start Exam"):
+                u = get_user(ph)
+                if u and u["pwd"] == pw:
+                    st.session_state.user = u
+                    st.session_state.messages = u["history"]
+                    st.rerun()
+                else: st.error("Invalid ID or Password")
+                
+    with tab2:
+        with st.form("reg_form"):
+            new_ph = st.text_input("New Student ID (Phone):")
+            new_name = st.text_input("Full Name:")
+            new_pw = st.text_input("Create Password:", type="password")
+            if st.form_submit_button("Register"):
+                if new_ph and new_name and new_pw:
+                    res = register_user(new_ph, new_name, new_pw)
+                    if res == "EXISTS":
+                        st.error("User already exists!")
+                    elif res == "ERROR" or res == "DB_ERROR":
+                        st.error("Database Error. Try again.")
+                    else:
+                        st.success("Account created! Logging in...")
+                        st.session_state.user = res
+                        st.session_state.messages = []
+                        time.sleep(1)
+                        st.rerun()
+                else:
+                    st.warning("Please fill all fields.")
 
 # ==================== EXAM PLATFORM ====================
 else:
@@ -158,14 +184,14 @@ else:
     c1, c2, c3 = st.columns([1, 2, 1])
     c1.metric("Band Score", u['band'], delta="Current Level")
     c2.markdown(f"### Student: {u['name']}")
-    if c3.button("Save & Exit", use_container_width=True): 
+    if c3.button("Save & Logout", use_container_width=True): 
         st.session_state.user = None; st.rerun()
     st.divider()
 
     # --- TABS ---
     t_speak, t_write, t_read, t_listen = st.tabs(["🎙️ SPEAKING", "📝 WRITING", "📖 READING", "🎧 LISTENING"])
 
-    # --- 1. SPEAKING MODULE (STATE MACHINE) ---
+    # --- 1. SPEAKING MODULE ---
     with t_speak:
         state = st.session_state.speaking_state
         
@@ -186,7 +212,6 @@ else:
                 current_q = test['part1'][state['q_idx']]
                 st.markdown(f"<div class='question-box'>🗣️ <b>Examiner:</b> {current_q}</div>", unsafe_allow_html=True)
                 
-                # Chat History
                 for msg in st.session_state.messages[-3:]:
                     with st.chat_message(msg["role"]): st.write(msg["content"])
 
@@ -195,7 +220,6 @@ else:
                     txt = client.audio.transcriptions.create(model="whisper-1", file=audio).text
                     st.session_state.messages.append({"role": "user", "content": txt})
                     
-                    # Logic
                     if state["q_idx"] < len(test['part1']) - 1:
                         state["q_idx"] += 1
                         st.success("Answer recorded. Next question...")
@@ -223,7 +247,6 @@ else:
                 audio_p3 = st.audio_input("Record Final Answer", key="spk_p3")
                 if audio_p3:
                     st.success("Test Finished. Generating Feedback...")
-                    # Generate Feedback
                     resp = client.chat.completions.create(
                         model="gpt-4o",
                         messages=[{"role": "system", "content": "Give IELTS Band Score and Feedback."}, 
@@ -234,7 +257,7 @@ else:
                         state["active"] = False
                         st.rerun()
 
-    # --- 2. WRITING MODULE (REAL GRADING) ---
+    # --- 2. WRITING MODULE ---
     with t_write:
         mode = st.radio("Choose Task:", ["Task 1", "Task 2"], horizontal=True)
         
@@ -249,7 +272,7 @@ else:
                 with st.spinner("Alan is marking..."):
                     res = client.chat.completions.create(
                         model="gpt-4o",
-                        messages=[{"role": "user", "content": f"Act as IELTS Examiner. Grade this Task 1 report based on the image description provided: '{task['prompt']}'. Report: {essay1}"}]
+                        messages=[{"role": "user", "content": f"Act as IELTS Examiner. Grade this Task 1 report based on image description: '{task['prompt']}'. Report: {essay1}"}]
                     )
                     st.markdown(res.choices[0].message.content)
 
@@ -267,7 +290,7 @@ else:
                     )
                     st.markdown(res.choices[0].message.content)
 
-    # --- 3. READING MODULE (SMART KEYS) ---
+    # --- 3. READING MODULE ---
     with t_read:
         if "r_exam" not in st.session_state: st.session_state.r_exam = random.choice(READING_DB)
         exam = st.session_state.r_exam
