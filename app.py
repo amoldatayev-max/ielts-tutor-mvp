@@ -7,7 +7,17 @@ import random
 # --- 1. НАСТРОЙКИ ---
 st.set_page_config(page_title="ZEST AI | IELTS Coach", page_icon="⚡️", layout="centered")
 
-# --- 2. БАЗА ДАННЫХ ---
+# --- 2. СКРЫВАЕМ ЛИШНЕЕ ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
+# --- 3. ПОДКЛЮЧЕНИЕ БД ---
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
@@ -21,7 +31,7 @@ def get_db_connection():
 
 worksheet = get_db_connection()
 
-# --- 3. ФУНКЦИИ ---
+# --- 4. ФУНКЦИИ ---
 def load_user(phone):
     if not worksheet: return None
     try:
@@ -61,14 +71,14 @@ def get_word_of_the_day():
     ]
     return random.choice(words)
 
-# --- 4. OPENAI ---
+# --- 5. OPENAI ---
 if "OPENAI_API_KEY" not in st.secrets: st.stop()
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 5. ЛОГИКА ---
+# --- 6. ЛОГИКА ---
 if "user" not in st.session_state: st.session_state.user = None
 if "messages" not in st.session_state: st.session_state.messages = []
-if "wod" not in st.session_state: st.session_state.wod = get_word_of_the_day() # Word of Day init
+if "wod" not in st.session_state: st.session_state.wod = get_word_of_the_day()
 
 # ==================== ВХОД ====================
 if not st.session_state.user:
@@ -105,15 +115,19 @@ else:
     user = st.session_state.user
     
     with st.sidebar:
-        # --- ФИШКА 1: СЛОВО ДНЯ ---
         st.info(f"💡 **Word of the Day:**\n\n**{st.session_state.wod[0]}**\n_{st.session_state.wod[1]}_")
+        
+        # Прогресс
+        user_msg_count = len([m for m in st.session_state.messages if m["role"] == "user"])
+        st.progress(min(user_msg_count / 50, 1.0))
+        st.caption(f"XP: {user_msg_count} actions")
         
         st.divider()
         st.caption(f"User: {user['name']}")
         
-        # --- ФИШКА 2: СКАЧАТЬ ЧАТ ---
+        # Скачивание чата
         chat_text = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in st.session_state.messages if m['role'] != 'system'])
-        st.download_button("📥 Download Chat", chat_text, file_name="lesson.txt")
+        st.download_button("📥 Download Lesson", chat_text, file_name="lesson.txt")
         
         st.divider()
         if st.button("Logout"):
@@ -122,7 +136,7 @@ else:
 
     st.title("ZEST AI ⚡️")
     
-    # --- ФИШКА 3: НАСТРОЙКА ГОЛОСА ---
+    # Настройки голоса
     with st.expander("⚙️ Audio Settings"):
         voice_speed = st.slider("Voice Speed:", 0.5, 1.5, 1.0, 0.1)
 
@@ -131,28 +145,34 @@ else:
         st.session_state.messages.append({"role": "system", "content": sys})
         st.session_state.messages.append({"role": "assistant", "content": f"Hi {user['name']}! Ready to practice? (Press 🎙️)"})
 
-    for msg in st.session_state.messages:
+    # Вывод истории
+    for i, msg in enumerate(st.session_state.messages):
         if msg["role"] != "system":
             av = "👨‍🏫" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=av):
                 st.markdown(msg["content"])
 
-    # ВВОД
+    # ВВОД (АУДИО ИЛИ ТЕКСТ)
     audio_val = st.audio_input("Speak / Говорить 🎙️")
     text_val = st.chat_input("Type...")
 
     user_in = None
     if audio_val:
-        with st.spinner("👂..."):
-            user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
+        with st.spinner("Transcribing..."):
+            try:
+                user_in = client.audio.transcriptions.create(model="whisper-1", file=audio_val).text
+            except: st.error("Mic error")
     elif text_val:
         user_in = text_val
 
+    # ОБРАБОТКА ОТВЕТА
     if user_in:
+        # 1. Показываем вопрос юзера
         st.session_state.messages.append({"role": "user", "content": user_in})
         with st.chat_message("user", avatar="👤"):
             st.markdown(user_in)
 
+        # 2. Генерируем ответ Армана
         with st.chat_message("assistant", avatar="👨‍🏫"):
             full_resp = ""
             ph = st.empty()
@@ -167,10 +187,17 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
-            # --- ПРИМЕНЕНИЕ СКОРОСТИ ГОЛОСА ---
-            resp_audio = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp, speed=voice_speed)
-            st.audio(resp_audio.content, format="audio/mp3")
+            # 3. Генерируем ЗВУК
+            # Важно: Генерируем уникальный ключ, чтобы плеер не путался
+            try:
+                resp_audio = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp, speed=voice_speed)
+                st.caption("🔊 Ответ Армана (Нажми Play):")
+                st.audio(resp_audio.content, format="audio/mp3", key=f"audio_{len(st.session_state.messages)}")
+            except Exception as e:
+                st.error("Audio generation failed")
 
+        # 4. Сохраняем в историю
         st.session_state.messages.append({"role": "assistant", "content": full_resp})
         save_history(user["row_id"], st.session_state.messages)
-        st.rerun()
+        
+        # ⚠️ ВАЖНО: Я УБРАЛ st.rerun(), ЧТОБЫ ПЛЕЕР НЕ ИСЧЕЗАЛ!
