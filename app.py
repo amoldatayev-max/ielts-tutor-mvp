@@ -135,10 +135,6 @@ else:
             st.rerun()
 
     st.title("ZEST AI ⚡️")
-    
-    # Настройки голоса
-    with st.expander("⚙️ Audio Settings"):
-        voice_speed = st.slider("Voice Speed:", 0.5, 1.5, 1.0, 0.1)
 
     if not st.session_state.messages:
         sys = f"Role: IELTS Coach Arman. Student Lang: {user['native_lang']}. Style: Socratic, Brief (2-3 sentences). Explain errors in Native Lang, practice in English. Strict Focus on IELTS."
@@ -187,17 +183,18 @@ else:
                     ph.markdown(full_resp + " ▌")
             ph.markdown(full_resp)
             
-            # 3. Генерируем ЗВУК
-            # Важно: Генерируем уникальный ключ, чтобы плеер не путался
+            # 3. Генерируем ЗВУК (БЕЗ speed и БЕЗ rerun)
             try:
-                resp_audio = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp, speed=voice_speed)
-                st.caption("🔊 Ответ Армана (Нажми Play):")
-                st.audio(resp_audio.content, format="audio/mp3", key=f"audio_{len(st.session_state.messages)}")
+                # Генерируем стандартный голос (onyx)
+                response = client.audio.speech.create(model="tts-1", voice="onyx", input=full_resp)
+                
+                # Явно пишем заголовок, чтобы не перепутать плееры
+                st.caption("🔊 ПРОСЛУШАТЬ ОТВЕТ АРМАНА:")
+                st.audio(response.content, format="audio/mp3")
+                
             except Exception as e:
-                st.error("Audio generation failed")
+                st.error("Audio error")
 
         # 4. Сохраняем в историю
         st.session_state.messages.append({"role": "assistant", "content": full_resp})
         save_history(user["row_id"], st.session_state.messages)
-        
-        # ⚠️ ВАЖНО: Я УБРАЛ st.rerun(), ЧТОБЫ ПЛЕЕР НЕ ИСЧЕЗАЛ!
